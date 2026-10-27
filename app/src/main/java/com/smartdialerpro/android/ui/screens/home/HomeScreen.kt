@@ -799,6 +799,7 @@ private fun DateHeader(label: String) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HomeCallItemRow(
     call: RecentCall,

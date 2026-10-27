@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -167,6 +168,7 @@ private fun SearchSectionTitle(title: String, icon: ImageVector) {
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, top = 14.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContactSearchRow(contact: Contact, onCall: () -> Unit, onOpen: () -> Unit, onLongPress: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -176,6 +178,7 @@ private fun ContactSearchRow(contact: Contact, onCall: () -> Unit, onOpen: () ->
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentSearchRow(call: RecentCall, onCall: () -> Unit, onOpen: () -> Unit, onLongPress: () -> Unit = {}) {
     val displayName = call.name?.takeIf { it.isNotBlank() } ?: call.number
