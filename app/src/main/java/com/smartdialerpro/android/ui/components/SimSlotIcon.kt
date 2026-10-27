@@ -51,13 +51,13 @@ fun SimSlotIcon(
             val path = androidx.compose.ui.graphics.Path().apply {
                 moveTo(0f, radius)
                 lineTo(0f, h - radius)
-                quadraticTo(0f, h, radius, h)
+                quadraticBezierTo(0f, h, radius, h)
                 lineTo(w - radius, h)
-                quadraticTo(w, h, w, h - radius)
+                quadraticBezierTo(w, h, w, h - radius)
                 lineTo(w, cut)
                 lineTo(w - cut, 0f)
                 lineTo(radius, 0f)
-                quadraticTo(0f, 0f, 0f, radius)
+                quadraticBezierTo(0f, 0f, 0f, radius)
                 close()
             }
             drawPath(path, color = color, style = Stroke(width = stroke))
