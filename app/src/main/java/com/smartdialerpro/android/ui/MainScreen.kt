@@ -50,6 +50,7 @@ import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.repository.ContactsRepository
 import com.smartdialerpro.android.service.CallManager
 import com.smartdialerpro.android.ui.navigation.Screen
+import com.smartdialerpro.android.ui.screens.contacts.AddToExistingScreen
 import com.smartdialerpro.android.ui.screens.contacts.ContactEditorScreen
 import com.smartdialerpro.android.ui.screens.contacts.ContactsScreen
 import com.smartdialerpro.android.ui.screens.contacts.FavoritesSpeedDialScreen
@@ -199,12 +200,25 @@ fun MainScreen() {
                 navController = navController,
                 startDestination = Screen.Home.route,
                 modifier = Modifier.weight(1f),
-                // Fast swipe language for every destination: forward slides in
-                // from the right, back slides back from the left, always quick.
-                enterTransition = { fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 5 } },
-                exitTransition = { fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { it / 5 } },
-                popEnterTransition = { fadeIn(tween(160)) + slideInHorizontally(tween(220)) { -it / 5 } },
-                popExitTransition = { fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { it / 5 } }
+                // Directional swipe: moving to a tab on the right slides the
+                // new screen in from the right (and vice versa); detail
+                // screens keep the forward/back convention.
+                enterTransition = {
+                    val dir = navSwipeDir(initialState.destination.route, targetState.destination.route, 1)
+                    fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 5 * dir }
+                },
+                exitTransition = {
+                    val dir = navSwipeDir(initialState.destination.route, targetState.destination.route, 1)
+                    fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { -it / 5 * dir }
+                },
+                popEnterTransition = {
+                    val dir = navSwipeDir(initialState.destination.route, targetState.destination.route, -1)
+                    fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 5 * dir }
+                },
+                popExitTransition = {
+                    val dir = navSwipeDir(initialState.destination.route, targetState.destination.route, -1)
+                    fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { -it / 5 * dir }
+                }
             ) {
                 composable(Screen.Home.route) {
                     HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = false, clearSearchSignal = leaveHomeSignal, reselectSignal = reselectSignal)
@@ -263,6 +277,26 @@ fun MainScreen() {
                     )
                 }
                 composable(
+                    route = Screen.AddToExisting.route,
+                    arguments = listOf(navArgument("number") { type = NavType.StringType }),
+                    enterTransition = { fadeIn(tween(150)) + slideInHorizontally(tween(220)) { it / 4 } },
+                    exitTransition = { fadeOut(tween(120)) + slideOutHorizontally(tween(200)) { it / 4 } },
+                    popEnterTransition = { fadeIn(tween(150)) },
+                    popExitTransition = { fadeOut(tween(120)) + slideOutHorizontally(tween(200)) { it / 4 } }
+                ) { backStackEntry ->
+                    val numberArg = backStackEntry.arguments?.getString("number") ?: ""
+                    AddToExistingScreen(
+                        number = numberArg,
+                        contactsViewModel = contactsViewModel,
+                        onBack = { navController.popBackStack() },
+                        onPick = { contact ->
+                            navController.navigate(Screen.ContactEditor.createRoute(contact.id, numberArg)) {
+                                popUpTo(Screen.AddToExisting.route) { inclusive = true }
+                            }
+                        }
+                    )
+                }
+                composable(
                     route = Screen.UniversalSearch.route,
                     enterTransition = { fadeIn(tween(140)) + slideInHorizontally(tween(200)) { it / 5 } },
                     exitTransition = { fadeOut(tween(110)) + slideOutHorizontally(tween(180)) { it / 5 } },
@@ -284,6 +318,9 @@ fun MainScreen() {
                         onBack = { navController.popBackStack() },
                         onOpenEditor = { contactId, editorNumber ->
                             navController.navigate(Screen.ContactEditor.createRoute(contactId, editorNumber))
+                        },
+                        onOpenAddToExisting = { pickerNumber ->
+                            navController.navigate(Screen.AddToExisting.createRoute(pickerNumber))
                         },
                         onOpenBlocked = { navController.navigate(Screen.BlockedNumbers.route) },
                         onContactsChanged = {
@@ -338,4 +375,21 @@ private fun PremiumNavItem(screen: Screen, selected: Boolean, onClick: () -> Uni
             Text(screen.title, color = textTint, fontSize = 10.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
         }
     }
+}
+
+/** Bottom-bar tab order for directional swipe animations (Home/Dialer share the first slot). */
+private fun tabIndex(route: String?): Int? = when (route) {
+    Screen.Home.route, Screen.Dialer.route -> 0
+    Screen.Favorites.route -> 1
+    Screen.Contacts.route -> 2
+    Screen.Settings.route -> 3
+    else -> null
+}
+
+/** +1 when travelling to a later tab, -1 when travelling to an earlier one, [defaultDir] otherwise. */
+private fun navSwipeDir(fromRoute: String?, toRoute: String?, defaultDir: Int): Int {
+    val from = tabIndex(fromRoute)
+    val to = tabIndex(toRoute)
+    if (from == null || to == null || from == to) return defaultDir
+    return if (to > from) 1 else -1
 }

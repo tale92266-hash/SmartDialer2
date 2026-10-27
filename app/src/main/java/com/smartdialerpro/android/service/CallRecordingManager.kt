@@ -39,7 +39,7 @@ object CallRecordingManager {
     @Synchronized
     fun start(context: Context, call: Call, number: String, name: String?): Boolean {
         if (_isRecording.value) return recordingCall === call
-        if (call.state != Call.STATE_ACTIVE) return fail("Recording requires an active call.")
+        if (call.state != Call.STATE_ACTIVE && call.state != Call.STATE_DIALING && call.state != Call.STATE_CONNECTING && call.state != Call.STATE_HOLDING) return fail("Recording requires a live call.")
 
         val appContext = context.applicationContext
         if (!hasRecordAudioPermission(appContext)) {

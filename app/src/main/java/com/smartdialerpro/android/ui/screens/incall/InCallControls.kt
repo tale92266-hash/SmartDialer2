@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +44,8 @@ fun ActiveCallControls(
     isOnHold: Boolean,
     isRecording: Boolean,
     multipleCalls: Boolean = false,
+    /** While the outgoing call is still ringing: only mute, keypad, speaker and record stay clickable. */
+    dialingMode: Boolean = false,
     onKeypad: () -> Unit,
     onAddCall: () -> Unit,
     onRecord: () -> Unit = { CallManager.toggleRecord(context) }
@@ -62,11 +65,12 @@ fun ActiveCallControls(
             ) { CallManager.toggleSpeaker() }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            CallControlButton(Icons.Rounded.Add, "Add call", false, onClick = onAddCall)
+            CallControlButton(Icons.Rounded.Add, "Add call", false, enabled = !dialingMode, onClick = onAddCall)
             CallControlButton(
                 if (isOnHold) Icons.Rounded.PlayArrow else Icons.Rounded.Pause,
                 if (isOnHold) "Resume" else "Hold",
-                isOnHold
+                isOnHold,
+                enabled = !dialingMode
             ) { CallManager.toggleHold() }
             CallControlButton(
                 Icons.Rounded.FiberManualRecord,
@@ -78,8 +82,8 @@ fun ActiveCallControls(
         }
         if (multipleCalls) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                CallControlButton(Icons.Rounded.SwapCalls, "Swap", false) { CallManager.swapCalls() }
-                CallControlButton(Icons.Rounded.MergeType, "Merge", false) { CallManager.mergeCalls() }
+                CallControlButton(Icons.Rounded.SwapCalls, "Swap", false, enabled = !dialingMode) { CallManager.swapCalls() }
+                CallControlButton(Icons.Rounded.MergeType, "Merge", false, enabled = !dialingMode) { CallManager.mergeCalls() }
             }
         }
     }
@@ -117,12 +121,14 @@ private fun CallControlButton(
     label: String,
     active: Boolean,
     accent: Color = MaterialTheme.colorScheme.primary,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .clickable(onClick = onClick)
+            .alpha(if (enabled) 1f else 0.35f)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 4.dp)
     ) {
         Box(

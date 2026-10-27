@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MailOutline
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Phone
+import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -287,21 +288,19 @@ fun ContactEditorScreen(
                     }
                 },
                 actions = {
-                    FilledTonalButton(
+                    TextButton(
                         onClick = { saveContact() },
                         enabled = !isSaving && name.isNotBlank() && phone1.isNotBlank(),
-                        modifier = Modifier.padding(end = 8.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     ) {
                         if (isSaving) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
                                 strokeWidth = 2.dp
                             )
-                        } else {
-                            Icon(Icons.Rounded.Done, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Save")
+                            Spacer(Modifier.width(6.dp))
                         }
+                        Text("Save", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             )
@@ -356,28 +355,31 @@ fun ContactEditorScreen(
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
-                                Text(
-                                    text = name.trim().take(1).uppercase().ifBlank { "?" },
-                                    fontSize = 38.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                // Default state: a camera icon, never a "?" or an initial.
+                                Icon(
+                                    Icons.Rounded.PhotoCamera,
+                                    contentDescription = "Add photo",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(38.dp)
                                 )
                             }
                         }
-                        Box(
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary)
-                                .clickable { photoPicker.launch("image/*") },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Rounded.Add,
-                                contentDescription = "Add photo",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        if (previewBitmap != null) {
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .clickable { photoPicker.launch("image/*") },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Add,
+                                    contentDescription = "Change photo",
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -404,11 +406,17 @@ fun ContactEditorScreen(
                                 .weight(1f)
                                 .padding(start = 16.dp)
                         ) {
-                            Text("Save to", fontWeight = FontWeight.SemiBold)
                             Text(
-                                "${target.title} • ${target.subtitle}",
+                                "Save to",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "${target.title} • ${target.subtitle}",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 14.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                         Icon(

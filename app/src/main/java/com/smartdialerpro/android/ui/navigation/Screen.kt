@@ -6,6 +6,7 @@ import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FiberManualRecord
+import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Person
@@ -37,5 +38,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object ContactEditor : Screen("contact_editor?contactId={contactId}&number={number}", "Edit Contact", Icons.Rounded.PersonAdd) {
         fun createRoute(contactId: String?, number: String) =
             "contact_editor?contactId=${contactId.orEmpty()}&number=${Uri.encode(number)}"
+    }
+    object AddToExisting : Screen("add_to_existing/{number}", "Add to existing", Icons.Rounded.GroupAdd) {
+        fun createRoute(number: String) = "add_to_existing/${Uri.encode(number)}"
     }
 }

@@ -642,9 +642,9 @@ fun HomeScreen(
                     sheetNumber = null
                     navController.navigate(Screen.ContactEditor.createRoute(null, newNumber))
                 },
-                onAddToExisting = { existing, existingNumber ->
+                onOpenAddToExisting = { pickerNumber ->
                     sheetNumber = null
-                    navController.navigate(Screen.ContactEditor.createRoute(existing.id, existingNumber))
+                    navController.navigate(Screen.AddToExisting.createRoute(pickerNumber))
                 },
                 onToggleFavorite = {
                     val target = sheetContact
@@ -875,9 +875,7 @@ private fun HomeCallItemRow(
     val isUnknown = call.name.isNullOrBlank()
 
     val backgroundColor by animateColorAsState(
-        if (expanded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-        else if (isMissed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.14f)
-        else Color.Transparent,
+        if (expanded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f) else Color.Transparent,
         label = "item_bg"
     )
 
@@ -891,7 +889,7 @@ private fun HomeCallItemRow(
             .padding(horizontal = if (expanded) 14.dp else 16.dp, vertical = 12.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            HomeCachedAvatar(displayName, call.photoUri, 48.dp)
+            HomeCachedAvatar(displayName, call.photoUri, 48.dp, highlight = isMissed)
 
             Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -954,7 +952,7 @@ private fun HomeCallItemRow(
                     }
                     call.simSlot?.let { slot ->
                         Spacer(Modifier.width(6.dp))
-                        SimSlotIcon(slot = slot, size = 20.dp)
+                        SimSlotIcon(slot = slot, size = 16.dp)
                     }
                 }
             }
@@ -1037,7 +1035,7 @@ private fun HomeActionItem(
 }
 
 @Composable
-private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp) {
+private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp, highlight: Boolean = false) {
     val context = LocalContext.current
     var bitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
 
@@ -1048,12 +1046,15 @@ private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp) {
     }
 
     val (avatarBg, avatarFg) = avatarColorsFor(name)
+    // Missed calls: the letter avatar turns red (no row background tint).
+    val bg = if (highlight && bitmap == null) MaterialTheme.colorScheme.errorContainer else avatarBg
+    val fg = if (highlight && bitmap == null) MaterialTheme.colorScheme.error else avatarFg
 
     Box(
         modifier = Modifier
             .size(size)
             .clip(CircleShape)
-            .background(avatarBg),
+            .background(bg),
         contentAlignment = Alignment.Center
     ) {
         bitmap?.let {
@@ -1062,7 +1063,7 @@ private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp) {
             text = Utils.getAvatarInitial(name),
             fontSize = (size.value * 0.40f).sp,
             fontWeight = FontWeight.Bold,
-            color = avatarFg
+            color = fg
         )
     }
 }
@@ -1217,7 +1218,7 @@ private fun HomeSimSelector(sims: List<SimInfo>, selectedIndex: Int, onSelect: (
                         if (sim.slotIndex >= 0) {
                             SimSlotIcon(
                                 slot = sim.slotIndex + 1,
-                                size = 18.dp,
+                                size = 15.dp,
                                 color = contentColorAnimated
                             )
                         } else {

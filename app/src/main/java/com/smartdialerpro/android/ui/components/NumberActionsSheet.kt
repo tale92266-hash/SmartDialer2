@@ -10,13 +10,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
@@ -24,17 +20,13 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonAdd
-import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,15 +63,13 @@ fun NumberActionsSheet(
     contacts: List<Contact>,
     onDismiss: () -> Unit,
     onSaveNew: (String) -> Unit,
-    onAddToExisting: (Contact, String) -> Unit,
+    onOpenAddToExisting: (String) -> Unit,
     onToggleFavorite: () -> Unit,
     onCall: () -> Unit,
     onOpenProfile: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    var showPicker by remember { mutableStateOf(false) }
-    var pickerQuery by remember { mutableStateOf("") }
     var blocked by remember { mutableStateOf<Boolean?>(null) }
     var blockBusy by remember { mutableStateOf(false) }
 
@@ -167,7 +157,7 @@ fun NumberActionsSheet(
                 }
             }
             SheetRow(Icons.Rounded.GroupAdd, "Add to existing contact") {
-                showPicker = true
+                onOpenAddToExisting(number)
             }
             SheetRow(Icons.Rounded.ContentCopy, "Copy number") {
                 copyNumber()
@@ -195,87 +185,6 @@ fun NumberActionsSheet(
             Spacer(Modifier.height(8.dp))
         }
     }
-
-    if (showPicker) {
-        val query = pickerQuery.trim()
-        val filtered = remember(query, contacts) {
-            if (query.isBlank()) {
-                contacts.sortedBy { it.name.lowercase() }
-            } else {
-                contacts.filter {
-                    it.name.contains(query, true) ||
-                        it.number.contains(query, true) ||
-                        it.number.filter(Char::isDigit).contains(query.filter(Char::isDigit))
-                }.sortedBy { it.name.lowercase() }
-            }
-        }
-        AlertDialog(
-            onDismissRequest = { showPicker = false },
-            title = { Text("Add to existing contact") },
-            text = {
-                Column {
-                    OutlinedTextField(
-                        value = pickerQuery,
-                        onValueChange = { pickerQuery = it },
-                        label = { Text("Search contacts") },
-                        leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(modifier = Modifier.heightIn(max = 360.dp)) {
-                        items(filtered, key = { "${it.id}_${it.number}" }) { item ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        showPicker = false
-                                        onAddToExisting(item, number)
-                                    }
-                                    .padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ContactAvatar(
-                                    item.name.ifBlank { item.number },
-                                    item.photoUri,
-                                    42.dp
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        text = item.name.ifBlank { item.number },
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = item.number,
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (filtered.isEmpty()) {
-                        Text(
-                            text = "No contacts match.",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showPicker = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-}
 
 @Composable
 private fun SheetRow(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {

@@ -374,9 +374,9 @@ fun ContactsScreen(
                 sheetNumber = null
                 navController.navigate(Screen.ContactEditor.createRoute(null, newNumber))
             },
-            onAddToExisting = { existing, existingNumber ->
+            onOpenAddToExisting = { pickerNumber ->
                 sheetNumber = null
-                navController.navigate(Screen.ContactEditor.createRoute(existing.id, existingNumber))
+                navController.navigate(Screen.AddToExisting.createRoute(pickerNumber))
             },
             onToggleFavorite = {
                 val target = sheetContact

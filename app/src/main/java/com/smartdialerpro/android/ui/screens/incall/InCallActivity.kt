@@ -212,7 +212,7 @@ fun PremiumInCallScreen(
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 InCallHeader(stateText, displayName, number, simInfo, contactBitmap, isRinging || isConnecting)
-                if (isRecording && showActiveControls) {
+                if (isRecording && (showActiveControls || isConnecting)) {
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
@@ -247,7 +247,19 @@ fun PremiumInCallScreen(
                         onAddCall = onAddCall,
                         onRecord = ::requestOrToggleRecording
                     )
-                    isConnecting || callState == Call.STATE_DISCONNECTING -> Spacer(Modifier.height(8.dp))
+                    isConnecting -> ActiveCallControls(
+                        context = context,
+                        isMuted = isMuted,
+                        speakerOn = speakerOn,
+                        isOnHold = isOnHold,
+                        isRecording = isRecording,
+                        multipleCalls = false,
+                        dialingMode = true,
+                        onKeypad = { onKeypadOpenChange(true) },
+                        onAddCall = onAddCall,
+                        onRecord = ::requestOrToggleRecording
+                    )
+                    callState == Call.STATE_DISCONNECTING -> Spacer(Modifier.height(8.dp))
                 }
                 Spacer(Modifier.height(20.dp))
                 if (!isRinging && callState != Call.STATE_DISCONNECTED) EndCallButton()

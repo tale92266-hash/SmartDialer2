@@ -85,6 +85,7 @@ fun ContactProfileScreen(
     number: String,
     onBack: () -> Unit,
     onOpenEditor: ((String?, String) -> Unit)? = null,
+    onOpenAddToExisting: ((String) -> Unit)? = null,
     onOpenBlocked: (() -> Unit)? = null,
     onContactsChanged: () -> Unit = {}
 ) {
@@ -279,7 +280,9 @@ fun ContactProfileScreen(
                             leadingIcon = { Icon(Icons.Rounded.GroupAdd, null) },
                             onClick = {
                                 menuExpanded = false
-                                if (onOpenEditor != null) {
+                                if (onOpenAddToExisting != null) {
+                                    onOpenAddToExisting(number)
+                                } else if (onOpenEditor != null) {
                                     onOpenEditor(null, number)
                                 } else {
                                     addToExistingContact(context, number)
@@ -440,7 +443,7 @@ fun ContactProfileScreen(
                                             if (sim.slotIndex >= 0) {
                                                 SimSlotIcon(
                                                     slot = sim.slotIndex + 1,
-                                                    size = 17.dp,
+                                                    size = 15.dp,
                                                     color = contentColorAnimated
                                                 )
                                             } else {
@@ -639,7 +642,7 @@ private fun ProfileCallHistoryRow(call: RecentCall) {
                 Text(if (call.duration > 0) formatDuration(call.duration) else "—", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 call.simSlot?.let {
                     Spacer(Modifier.height(3.dp))
-                    SimSlotIcon(slot = it, size = 18.dp)
+                    SimSlotIcon(slot = it, size = 16.dp)
                 }
             }
         }

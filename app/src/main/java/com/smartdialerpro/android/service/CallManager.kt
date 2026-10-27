@@ -312,7 +312,7 @@ object CallManager {
         if (isRecording.value) {
             val saved = CallRecordingManager.stop(context)
             Toast.makeText(context, if (saved != null) "Recording saved" else (recordingStatus.value ?: "Recording stopped"), Toast.LENGTH_SHORT).show()
-        } else if (call.state != Call.STATE_ACTIVE) Toast.makeText(context, "Recording is available during an active call.", Toast.LENGTH_SHORT).show()
+        } else if (call.state != Call.STATE_ACTIVE && call.state != Call.STATE_DIALING && call.state != Call.STATE_CONNECTING && call.state != Call.STATE_HOLDING) Toast.makeText(context, "Recording is available during a call.", Toast.LENGTH_SHORT).show()
         else {
             val started = CallRecordingManager.start(context, call, callNumber.value, callerName.value)
             Toast.makeText(context, if (started) "Recording started" else (recordingStatus.value ?: "Call recording could not start."), Toast.LENGTH_LONG).show()
