@@ -58,6 +58,7 @@ import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.repository.ContactsRepository
 import com.smartdialerpro.android.ui.components.FakeCallSheet
+import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.ui.components.SimSlotIcon
 import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
 import com.smartdialerpro.android.ui.components.launchWhatsApp
@@ -339,7 +340,7 @@ fun ContactProfileScreen(
         if (showMagicSheet) {
         FakeCallSheet(
             number = number,
-            simSlot = (selectedSim?.slotIndex ?: 0).coerceAtLeast(0),
+            simSlot = selectedSim?.slotIndex?.takeIf { it >= 0 } ?: FakeCallSim.resolveDefaultSimSlot(context),
             onDismiss = { showMagicSheet = false },
             onGenuineCall = { genuineNumber -> placeRealCall(context, genuineNumber, selectedSim) },
             onDirectCall = { fakeNumber, durationSecs, slot ->

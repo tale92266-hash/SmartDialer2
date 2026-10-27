@@ -498,6 +498,38 @@ fun SettingsMagicCallScreen(navController: NavController? = null) {
             }
         }
 
+        SectionTitle("Call log")
+        val telecomManager = context.getSystemService(Context.TELECOM_SERVICE) as? android.telecom.TelecomManager
+        val isDefaultDialer = telecomManager?.defaultDialerPackage == context.packageName
+        val hasWriteLog = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALL_LOG) == PackageManager.PERMISSION_GRANTED
+        Text(
+            if (isDefaultDialer || hasWriteLog) "Fake call logs are written to the real system call log, so they appear in every dialer app."
+            else "Set SmartDialer as the default phone app so fake call logs appear in every dialer app.",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+        )
+        SettingRow(
+            icon = Icons.Rounded.Phone,
+            title = if (isDefaultDialer) "Default dialer is set" else "Set as default dialer",
+            subtitle = if (isDefaultDialer) "Call logs will be saved" else "Required to save call logs"
+        ) {
+            if (!isDefaultDialer) {
+                try {
+                    val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+                    if (roleManager?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
+                        context.startActivity(
+                            roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                } catch (_: Throwable) {
+                }
+            } else {
+                ToastHelper.show(context, "SmartDialer is already the default phone app.")
+            }
+        }
+
         SectionTitle("About Magic Call")
         Text(
             "Magic Call starts a simulated outgoing call with the duration you pick. " +

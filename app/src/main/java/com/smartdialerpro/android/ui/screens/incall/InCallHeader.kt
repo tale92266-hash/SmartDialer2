@@ -40,7 +40,9 @@ fun InCallHeader(
     number: String,
     simInfo: String?,
     contactBitmap: ImageBitmap?,
-    animateAvatar: Boolean
+    animateAvatar: Boolean,
+    /** 1-based SIM slot: when set, the SIM glyph icon is shown instead of the generic SIM icon. */
+    simSlot: Int? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -99,12 +101,21 @@ fun InCallHeader(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.SimCard,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.padding(end = 7.dp)
-                )
+                if (simSlot != null) {
+                    com.smartdialerpro.android.ui.components.SimSlotIcon(
+                        slot = simSlot,
+                        modifier = Modifier.padding(end = 7.dp),
+                        size = 13.dp,
+                        color = Color.White
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.SimCard,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.padding(end = 7.dp)
+                    )
+                }
                 Text(
                     text = simInfo,
                     fontSize = 13.sp,

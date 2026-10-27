@@ -48,6 +48,7 @@ import com.smartdialerpro.android.ui.components.avatarColorsFor
 import com.smartdialerpro.android.ui.components.launchWhatsApp
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.components.FakeCallSheet
+import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.util.Utils
@@ -407,7 +408,7 @@ fun ContactsScreen(
     magicSheetNumber?.let { magicNumber ->
         FakeCallSheet(
             number = magicNumber,
-            simSlot = 0,
+            simSlot = FakeCallSim.resolveDefaultSimSlot(context),
             onDismiss = { magicSheetNumber = null },
             onGenuineCall = { genuineNumber -> Utils.makeCall(context, genuineNumber) },
             onDirectCall = { fakeNumber, durationSecs, slot ->

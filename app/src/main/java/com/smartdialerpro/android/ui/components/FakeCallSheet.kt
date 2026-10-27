@@ -33,6 +33,11 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +49,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.smartdialerpro.android.service.FakeCallDurations
+import com.smartdialerpro.android.service.FakeCallSim
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The Magic Call picker, matching the original Dialar bottom sheet:
@@ -62,6 +70,10 @@ fun FakeCallSheet(
     onDirectCall: (number: String, durationSecs: Int, simSlot: Int) -> Unit
 ) {
     val context = LocalContext.current
+    var simLabel by remember { mutableStateOf("SIM ${simSlot + 1}") }
+    LaunchedEffect(simSlot) {
+        simLabel = withContext(Dispatchers.IO) { FakeCallSim.simLabelForSlot(context, simSlot) }
+    }
 
     fun directCall(durationSecs: Int) {
         if (!canSaveFakeLogs(context)) {
@@ -95,8 +107,21 @@ fun FakeCallSheet(
                 "Choose call mode / duration",
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp, bottom = 18.dp)
+                modifier = Modifier.padding(top = 4.dp)
             )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(top = 8.dp, bottom = 18.dp)
+            ) {
+                SimSlotIcon(slot = simSlot + 1, size = 13.dp)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Fake call from $simLabel",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
 
             // Highlighted quick option: instant start, fixed 120 seconds.
             Row(

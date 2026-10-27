@@ -43,6 +43,7 @@ import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.components.FakeCallSheet
+import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.ui.screens.contacts.ContactAvatar
@@ -159,7 +160,7 @@ fun UniversalSearchScreen(contactsViewModel: ContactsViewModel, recentsViewModel
     magicSheetNumber?.let { magicNumber ->
         FakeCallSheet(
             number = magicNumber,
-            simSlot = 0,
+            simSlot = FakeCallSim.resolveDefaultSimSlot(context),
             onDismiss = { magicSheetNumber = null },
             onGenuineCall = { genuineNumber -> Utils.makeCall(context, genuineNumber) },
             onDirectCall = { fakeNumber, durationSecs, slot ->

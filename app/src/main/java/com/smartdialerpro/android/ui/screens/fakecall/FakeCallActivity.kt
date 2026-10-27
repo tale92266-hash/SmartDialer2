@@ -49,6 +49,7 @@ import com.smartdialerpro.android.service.FakeCallEngineListener
 import com.smartdialerpro.android.service.FakeCallLogWriter
 import com.smartdialerpro.android.service.FakeCallService
 import com.smartdialerpro.android.service.FakeCallSession
+import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.service.FakeCallState
 import com.smartdialerpro.android.ui.screens.incall.ActiveCallControls
 import com.smartdialerpro.android.ui.screens.incall.EndCallButton
@@ -106,7 +107,8 @@ class FakeCallActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         number = intent.getStringExtra("number") ?: ""
         durationSecs = intent.getIntExtra("fake_duration", 0)
-        simSlot = intent.getIntExtra("sim_slot", 0)
+        simSlot = intent.getIntExtra("sim_slot", -1)
+        if (simSlot < 0) simSlot = FakeCallSim.resolveDefaultSimSlot(this)
         if (number.isBlank()) {
             finish()
             return
@@ -361,7 +363,14 @@ class FakeCallActivity : ComponentActivity() {
         val wasMissed = connectTimeMillis == 0L
         val fakeStartTime = now - (finalDuration * 1000L)
         try {
-            FakeCallLogWriter.addFakeLog(this, number, fakeStartTime, finalDuration, simSlot, wasMissed)
+            val logSaved = FakeCallLogWriter.addFakeLog(this, number, fakeStartTime, finalDuration, simSlot, wasMissed)
+            if (!logSaved) {
+                Toast.makeText(
+                    this,
+                    "Call log could not be saved. Set SmartDialer as the default phone app so fake call logs appear in every app.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         } catch (_: Throwable) {
         }
         if (wasMissed && !userRejected) {
@@ -436,7 +445,8 @@ class FakeCallActivity : ComponentActivity() {
                         number = number,
                         simInfo = simInfo,
                         contactBitmap = bitmap,
-                        animateAvatar = isConnecting
+                        animateAvatar = isConnecting,
+                        simSlot = simSlot + 1
                     )
                 }
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {

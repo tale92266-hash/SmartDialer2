@@ -81,6 +81,7 @@ import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.ui.components.EmptyStateView
 import com.smartdialerpro.android.ui.components.FakeCallSheet
+import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.ui.components.avatarColorsFor
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
@@ -705,7 +706,7 @@ fun HomeScreen(
         magicSheetNumber?.let { magicNumber ->
             FakeCallSheet(
                 number = magicNumber,
-                simSlot = selectedSimIndex,
+                simSlot = selectedSim?.slotIndex?.takeIf { it >= 0 } ?: FakeCallSim.resolveDefaultSimSlot(context),
                 onDismiss = { magicSheetNumber = null },
                 onGenuineCall = { genuineNumber ->
                     placeRealCall(context, genuineNumber, selectedSim)
