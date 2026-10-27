@@ -17,6 +17,22 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            val keystorePath = System.getenv("SMARTDIALER_KEYSTORE_FILE")
+            if (!keystorePath.isNullOrBlank()) {
+                val keystoreFile = file(keystorePath)
+                if (keystoreFile.exists()) {
+                    storeFile = keystoreFile
+                    storeType = "PKCS12"
+                    storePassword = System.getenv("SMARTDIALER_KEYSTORE_PASSWORD") ?: ""
+                    keyAlias = System.getenv("SMARTDIALER_KEY_ALIAS") ?: "smartdialer"
+                    keyPassword = System.getenv("SMARTDIALER_KEY_PASSWORD") ?: ""
+                }
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

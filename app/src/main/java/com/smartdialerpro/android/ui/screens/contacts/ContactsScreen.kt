@@ -43,6 +43,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
 import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.ui.components.EmptyStateView
+import com.smartdialerpro.android.ui.components.avatarColorsFor
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.util.Utils
@@ -524,11 +525,13 @@ fun ContactAvatar(name: String, photoUri: String?, size: androidx.compose.ui.uni
         } else null
     }
 
+    val (avatarBg, avatarFg) = avatarColorsFor(name)
+
     Box(
         Modifier
             .size(size)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer),
+            .background(avatarBg),
         contentAlignment = Alignment.Center
     ) {
         if (bitmap != null) {
@@ -538,7 +541,7 @@ fun ContactAvatar(name: String, photoUri: String?, size: androidx.compose.ui.uni
                 text = Utils.getAvatarInitial(name),
                 fontSize = (size.value * .38f).sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = avatarFg
             )
         }
     }

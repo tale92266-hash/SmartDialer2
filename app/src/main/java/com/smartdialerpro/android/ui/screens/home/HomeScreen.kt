@@ -77,6 +77,7 @@ import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.ui.components.EmptyStateView
+import com.smartdialerpro.android.ui.components.avatarColorsFor
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.ui.theme.CallAnswerGreen
@@ -353,6 +354,12 @@ fun HomeScreen(
                         } else {
                             itemsIndexed(
                                 items = groupedSearchItems,
+                                contentType = { _, item ->
+                                    when (item) {
+                                        is CallListItem.DateHeader -> "header"
+                                        is CallListItem.CallEntry -> "entry"
+                                    }
+                                },
                                 key = { index, item ->
                                     when (item) {
                                         is CallListItem.DateHeader -> "search_hdr_${item.dayKey}_$index"
@@ -410,6 +417,12 @@ fun HomeScreen(
 
                             itemsIndexed(
                                 items = groupedCallItems,
+                                contentType = { _, item ->
+                                    when (item) {
+                                        is CallListItem.DateHeader -> "header"
+                                        is CallListItem.CallEntry -> "entry"
+                                    }
+                                },
                                 key = { index, item ->
                                     when (item) {
                                         is CallListItem.DateHeader -> "date_${item.dayKey}_$index"
@@ -797,7 +810,7 @@ private fun DateHeader(label: String) {
         fontSize = 13.sp,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp)
+        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp)
     )
 }
 
@@ -1009,11 +1022,13 @@ private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp) {
         } else null
     }
 
+    val (avatarBg, avatarFg) = avatarColorsFor(name)
+
     Box(
         modifier = Modifier
             .size(size)
             .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primaryContainer),
+            .background(avatarBg),
         contentAlignment = Alignment.Center
     ) {
         bitmap?.let {
@@ -1022,7 +1037,7 @@ private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp) {
             text = Utils.getAvatarInitial(name),
             fontSize = (size.value * 0.40f).sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary
+            color = avatarFg
         )
     }
 }
