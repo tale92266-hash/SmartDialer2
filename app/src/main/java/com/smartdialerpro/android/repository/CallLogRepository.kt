@@ -120,13 +120,29 @@ class CallLogRepository(private val context: Context) {
         )
 
         try {
-            context.contentResolver.query(
-                CallLog.Calls.CONTENT_URI,
-                projection,
-                null,
-                null,
-                "${CallLog.Calls.DATE} DESC"
-            )?.use { cursor ->
+            // The sub_id column does not exist on every OEM call-log
+            // provider (e.g. Vivo/Funtouch): requesting it there throws
+            // and the whole query fails, so no new rows ever appear.
+            // Try with it first; fall back to the base projection.
+            val cursor = try {
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    "${CallLog.Calls.DATE} DESC"
+                )
+            } catch (_: Throwable) {
+                Log.w(TAG, "sub_id column missing on this provider, retrying without it")
+                context.contentResolver.query(
+                    CallLog.Calls.CONTENT_URI,
+                    projection.filter { it != COL_SUB_ID }.toTypedArray(),
+                    null,
+                    null,
+                    "${CallLog.Calls.DATE} DESC"
+                )
+            }
+            cursor?.use { cursor ->
                 val idIdx = cursor.getColumnIndex(CallLog.Calls._ID)
                 val nameIdx = cursor.getColumnIndex(CallLog.Calls.CACHED_NAME)
                 val numIdx = cursor.getColumnIndex(CallLog.Calls.NUMBER)
