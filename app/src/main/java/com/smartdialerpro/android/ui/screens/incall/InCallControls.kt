@@ -48,7 +48,11 @@ fun ActiveCallControls(
     dialingMode: Boolean = false,
     onKeypad: () -> Unit,
     onAddCall: () -> Unit,
-    onRecord: () -> Unit = { CallManager.toggleRecord(context) }
+    onRecord: () -> Unit = { CallManager.toggleRecord(context) },
+    /** Overrides for the fake-call screen, which mirrors this grid without Telecom. */
+    onToggleMute: () -> Unit = { CallManager.toggleMute() },
+    onToggleSpeaker: () -> Unit = { CallManager.toggleSpeaker() },
+    onToggleHold: () -> Unit = { CallManager.toggleHold() }
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -56,13 +60,13 @@ fun ActiveCallControls(
                 if (isMuted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
                 "Mute",
                 isMuted
-            ) { CallManager.toggleMute() }
+            ) { onToggleMute() }
             CallControlButton(Icons.Rounded.Dialpad, "Keypad", false, onClick = onKeypad)
             CallControlButton(
                 Icons.Rounded.VolumeUp,
                 if (speakerOn) "Speaker on" else "Speaker",
                 speakerOn
-            ) { CallManager.toggleSpeaker() }
+            ) { onToggleSpeaker() }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             CallControlButton(Icons.Rounded.Add, "Add call", false, enabled = !dialingMode, onClick = onAddCall)
@@ -71,7 +75,7 @@ fun ActiveCallControls(
                 if (isOnHold) "Resume" else "Hold",
                 isOnHold,
                 enabled = !dialingMode
-            ) { CallManager.toggleHold() }
+            ) { onToggleHold() }
             CallControlButton(
                 Icons.Rounded.FiberManualRecord,
                 if (isRecording) "Recording" else "Record",
@@ -101,9 +105,9 @@ fun IncomingCallControls(onDecline: () -> Unit, onAnswer: () -> Unit) {
 }
 
 @Composable
-fun EndCallButton() {
+fun EndCallButton(onEndCall: () -> Unit = { CallManager.endCall() }) {
     FloatingActionButton(
-        onClick = { CallManager.endCall() },
+        onClick = onEndCall,
         containerColor = CallEndRed,
         contentColor = Color.White,
         shape = CircleShape,

@@ -123,14 +123,17 @@ fun FakeCallSheet(
                 onGenuineCall(number)
                 onDismiss()
             }
-            FakeCallOptionRow(Icons.Rounded.Timer, "15 Sec Call", "Random, between 1s - 28s") {
+            FakeCallOptionRow(Icons.Rounded.Timer, "15 Sec Call", "Random, between 1s - 15s") {
                 directCall(FakeCallDurations.smartRandom(context, FakeCallDurations.MODE_SHORT))
             }
-            FakeCallOptionRow(Icons.Rounded.Timer, "30 Sec Call", "Random, between 31s - 47s") {
+            FakeCallOptionRow(Icons.Rounded.Timer, "30 Sec Call", "Random, between 16s - 30s") {
                 directCall(FakeCallDurations.smartRandom(context, FakeCallDurations.MODE_MID))
             }
-            FakeCallOptionRow(Icons.Rounded.Timer, "1 Min 30 Sec", "Random, between 61s - 87s") {
+            FakeCallOptionRow(Icons.Rounded.Timer, "45 Sec Call", "Random, between 31s - 46s") {
                 directCall(FakeCallDurations.smartRandom(context, FakeCallDurations.MODE_LONG))
+            }
+            FakeCallOptionRow(Icons.Rounded.Timer, "1 Min 30 Sec", "Random, between 1m 01s - 1m 29s") {
+                directCall(FakeCallDurations.smartRandom(context, FakeCallDurations.MODE_XLONG))
             }
             FakeCallOptionRow(Icons.Rounded.Casino, "Smart Random", "Mix & match duration") {
                 directCall(FakeCallDurations.ultimateRandom(context))

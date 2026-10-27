@@ -47,7 +47,7 @@ class FakeCallEngine(private val context: android.content.Context, private var l
         handler.postDelayed({
             if (isCleanedUp) return@postDelayed
             updateState(FakeCallState.RINGING, "Ringing...")
-            val numberOfRings = 2 + Random.nextInt(4)
+            val numberOfRings = 2 + Random.nextInt(2)
             val ringingDelayMs = numberOfRings * 3000L
             handler.postDelayed({
                 if (isCleanedUp) return@postDelayed

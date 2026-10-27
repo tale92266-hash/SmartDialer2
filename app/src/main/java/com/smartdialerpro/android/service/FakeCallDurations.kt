@@ -17,6 +17,7 @@ object FakeCallDurations {
     const val MODE_SHORT = 0
     const val MODE_MID = 1
     const val MODE_LONG = 2
+    const val MODE_XLONG = 3
 
     /** The highlighted quick option: instant start, fixed 120 seconds. */
     const val QUICK_TWO_MINUTES = 120
@@ -25,8 +26,9 @@ object FakeCallDurations {
         context.getSharedPreferences("FakeCallTracker", Context.MODE_PRIVATE)
 
     /**
-     * "Smart Random": mostly long calls, sometimes mid/short, with a cap
-     * on consecutive long picks so the pattern never looks staged.
+     * "Smart Random": mostly longer calls, sometimes shorter, with a cap
+     * on consecutive extra-long picks so the pattern never looks staged.
+     * Bands: short 1-15s, mid 16-30s, long 31-46s, extra-long 61-89s.
      */
     fun ultimateRandom(context: Context): Int {
         val p = prefs(context)
@@ -35,19 +37,24 @@ object FakeCallDurations {
             if (Random.nextInt(100) < 60) 1 else 0
         } else {
             when (Random.nextInt(100)) {
-                in 0 until 75 -> 2
+                in 0 until 50 -> 3
+                in 50 until 75 -> 2
                 in 75 until 90 -> 1
                 else -> 0
             }
         }
         val duration = when (category) {
-            2 -> {
+            3 -> {
                 p.edit().putInt("consecutive_long", consecutiveLong + 1).apply()
-                Random.nextInt(30) + 61
+                Random.nextInt(29) + 61
+            }
+            2 -> {
+                p.edit().putInt("consecutive_long", 0).apply()
+                Random.nextInt(16) + 31
             }
             1 -> {
                 p.edit().putInt("consecutive_long", 0).apply()
-                Random.nextInt(17) + 31
+                Random.nextInt(15) + 16
             }
             else -> {
                 p.edit().putInt("consecutive_long", 0).apply()
@@ -58,8 +65,9 @@ object FakeCallDurations {
     }
 
     /**
-     * Mode durations: short = 1-28s, mid = 31-47s, long = 61-87s.
-     * Each mode keeps its own per-day pool of used values.
+     * Mode durations: short = 1-15s, mid = 16-30s, long = 31-46s,
+     * extra-long = 61-89s. Each mode keeps its own per-day pool of
+     * used values.
      */
     fun smartRandom(context: Context, modeIndex: Int): Int {
         val p = prefs(context)
@@ -71,9 +79,10 @@ object FakeCallDurations {
         var max = 15
         var minGap = 3
         when (modeIndex) {
-            MODE_SHORT -> { min = 1; max = 28; minGap = 4 }
-            MODE_MID -> { min = 31; max = 47; minGap = 4 }
-            MODE_LONG -> { min = 61; max = 87; minGap = 6 }
+            MODE_SHORT -> { min = 1; max = 15; minGap = 3 }
+            MODE_MID -> { min = 16; max = 30; minGap = 3 }
+            MODE_LONG -> { min = 31; max = 46; minGap = 4 }
+            MODE_XLONG -> { min = 61; max = 89; minGap = 6 }
         }
         val key = "used_durations_mode_$modeIndex"
         val lastValKey = "last_val_mode_$modeIndex"

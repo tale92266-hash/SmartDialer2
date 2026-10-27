@@ -4,8 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.media.AudioAttributes
-import android.media.AudioManager
 import android.media.MediaPlayer
+import android.media.Ringtone
 import android.media.RingtoneManager
 import android.media.ToneGenerator
 import android.net.Uri
@@ -13,8 +13,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.VibrationEffect
-import android.os.Vibrator
 import android.provider.ContactsContract
 import android.telephony.SubscriptionManager
 import android.view.WindowManager
@@ -23,46 +21,27 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CallEnd
-import androidx.compose.material.icons.rounded.Dialpad
-import androidx.compose.material.icons.rounded.FiberManualRecord
-import androidx.compose.material.icons.rounded.GroupAdd
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MicOff
-import androidx.compose.material.icons.rounded.Pause
-import androidx.compose.material.icons.rounded.VolumeUp
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.smartdialerpro.android.MainActivity
 import com.smartdialerpro.android.service.AmbientSoundManager
 import com.smartdialerpro.android.service.FakeCallActionHandler
 import com.smartdialerpro.android.service.FakeCallEngine
@@ -71,19 +50,18 @@ import com.smartdialerpro.android.service.FakeCallLogWriter
 import com.smartdialerpro.android.service.FakeCallService
 import com.smartdialerpro.android.service.FakeCallSession
 import com.smartdialerpro.android.service.FakeCallState
+import com.smartdialerpro.android.ui.screens.incall.ActiveCallControls
+import com.smartdialerpro.android.ui.screens.incall.EndCallButton
 import com.smartdialerpro.android.ui.screens.incall.InCallDtmfPad
 import com.smartdialerpro.android.ui.screens.incall.InCallHeader
-import com.smartdialerpro.android.ui.theme.CallEndRed
 import com.smartdialerpro.android.ui.theme.SmartDialerTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
- * The Magic (fake) call screen. It looks and behaves like the real
- * in-call screen (dialing -> ringing -> connected with a timer, then
- * auto-end at the chosen duration) but never touches Telecom, the SIM
- * or the network. When it ends, a realistic entry is written to the
- * system call log by [FakeCallLogWriter].
+ * The Magic (fake) call screen. Its layout is the real in-call screen,
+ * shared component for component (header, control grid, DTMF pad, end
+ * button) — the call itself never touches Telecom, the SIM or the
+ * network. When it ends, a realistic entry is written to the system
+ * call log by [FakeCallLogWriter].
  */
 class FakeCallActivity : ComponentActivity() {
 
@@ -93,7 +71,7 @@ class FakeCallActivity : ComponentActivity() {
                 putExtra("number", number)
                 putExtra("fake_duration", durationSecs)
                 putExtra("sim_slot", simSlot)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
             }
             context.startActivity(intent)
         }
@@ -102,7 +80,7 @@ class FakeCallActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var engine: FakeCallEngine? = null
     private var ringtonePlayer: MediaPlayer? = null
-    private var vibrator: Vibrator? = null
+    private var ringtoneFallback: Ringtone? = null
     private var toneGenerator: ToneGenerator? = null
     private var autoDisconnectRunnable: Runnable? = null
     private var isEnding = false
@@ -159,8 +137,9 @@ class FakeCallActivity : ComponentActivity() {
                     keypadOpen.value = false
                     return
                 }
-                // Leave the screen, not the call: the notification brings it back.
-                moveTaskToBack(true)
+                // Leave the call screen, not the call: the app opens with
+                // the return-to-call banner, exactly like a real call.
+                openMainApp()
             }
         })
 
@@ -231,6 +210,16 @@ class FakeCallActivity : ComponentActivity() {
         }
     }
 
+    private fun openMainApp() {
+        try {
+            startActivity(Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+            })
+        } catch (_: Throwable) {
+            moveTaskToBack(true)
+        }
+    }
+
     private fun resolveContactAndSim() {
         val appContext = applicationContext
         Thread {
@@ -275,8 +264,7 @@ class FakeCallActivity : ComponentActivity() {
 
     private fun onConnected() {
         connectTimeMillis = System.currentTimeMillis()
-        FakeCallSession.connected = true
-        FakeCallSession.startTimeMillis = connectTimeMillis
+        FakeCallSession.markConnected(connectTimeMillis)
         stopRinging()
         try {
             val preset = AmbientSoundManager.getInstance(this).getCurrentPreset()
@@ -291,6 +279,12 @@ class FakeCallActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The ringing tune, played audibly through the speaker path at full
+     * volume so it is heard like a real call's ringing — never just a
+     * vibration. Falls back to the system Ringtone player if the
+     * MediaPlayer route fails.
+     */
     private fun startRinging() {
         try {
             stopRinging()
@@ -298,22 +292,25 @@ class FakeCallActivity : ComponentActivity() {
             ringtonePlayer = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                         .build()
                 )
                 setDataSource(this@FakeCallActivity, ringtoneUri)
                 isLooping = true
-                setVolume(0.8f, 0.8f)
+                setVolume(1.0f, 1.0f)
                 prepare()
                 start()
             }
         } catch (_: Throwable) {
-        }
-        try {
-            vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 900, 1200), 0))
-        } catch (_: Throwable) {
+            ringtonePlayer = null
+            try {
+                ringtoneFallback = RingtoneManager.getRingtone(
+                    this,
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+                )?.apply { play() }
+            } catch (_: Throwable) {
+            }
         }
     }
 
@@ -330,10 +327,10 @@ class FakeCallActivity : ComponentActivity() {
         }
         ringtonePlayer = null
         try {
-            vibrator?.cancel()
+            ringtoneFallback?.stop()
         } catch (_: Throwable) {
         }
-        vibrator = null
+        ringtoneFallback = null
     }
 
     private fun toggleMute() {
@@ -377,7 +374,7 @@ class FakeCallActivity : ComponentActivity() {
     private fun playDtmfTone(digit: Char) {
         try {
             if (toneGenerator == null) {
-                toneGenerator = ToneGenerator(AudioManager.STREAM_DTMF, 80)
+                toneGenerator = ToneGenerator(android.media.AudioManager.STREAM_DTMF, 80)
             }
             val tone = when (digit) {
                 '1' -> ToneGenerator.TONE_DTMF_1
@@ -413,127 +410,73 @@ class FakeCallActivity : ComponentActivity() {
         val bitmap by contactBitmap
         val context = LocalContext.current
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
+        val isConnecting = state == FakeCallState.DIALING || state == FakeCallState.RINGING
+        val showActiveControls = state == FakeCallState.ACTIVE
+
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         listOf(Color(0xFF08070D), Color(0xFF15102A), Color(0xFF241238), Color(0xFF100B19))
                     )
                 )
-        ) {
+            )
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp, vertical = 28.dp),
+                Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 26.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                InCallHeader(
-                    stateText = if (state == FakeCallState.ACTIVE) timer else status,
-                    displayName = name,
-                    number = number,
-                    simInfo = simInfo,
-                    contactBitmap = bitmap,
-                    animateAvatar = state == FakeCallState.ACTIVE
-                )
-
-                Spacer(Modifier.weight(1f))
-
-                if (keypad) {
-                    InCallDtmfPad(
-                        digits = digits,
-                        onDigit = { digit ->
-                            dtmfDigits.value += digit
-                            playDtmfTone(digit)
-                        },
-                        onBackspace = { dtmfDigits.value = dtmfDigits.value.dropLast(1) },
-                        onClose = { keypadOpen.value = false }
-                    )
-                    Spacer(Modifier.height(20.dp))
-                } else {
-                    FakeControlGrid(
-                        muted = muted,
-                        speaker = speaker,
-                        onMute = { toggleMute() },
-                        onKeypad = { keypadOpen.value = true },
-                        onSpeaker = { toggleSpeaker() },
-                        onRecordInfo = {
-                            Toast.makeText(context, "Recording is not available for fake calls", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                    Spacer(Modifier.height(20.dp))
-                }
-
-                // End call button.
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .background(CallEndRed, CircleShape)
-                        .clickable { userEndCall() },
-                    contentAlignment = Alignment.Center
+                Column(
+                    Modifier.fillMaxWidth().weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    Icon(Icons.Rounded.CallEnd, contentDescription = "End call", tint = Color.White, modifier = Modifier.size(34.dp))
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-        }
-    }
-
-    @Composable
-    private fun FakeControlGrid(
-        muted: Boolean,
-        speaker: Boolean,
-        onMute: () -> Unit,
-        onKeypad: () -> Unit,
-        onSpeaker: () -> Unit,
-        onRecordInfo: () -> Unit
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                FakeControlButton(if (muted) Icons.Rounded.MicOff else Icons.Rounded.Mic, "Mute", muted, onMute)
-                FakeControlButton(Icons.Rounded.Dialpad, "Keypad", false, onKeypad)
-                FakeControlButton(Icons.Rounded.VolumeUp, "Speaker", speaker, onSpeaker)
-            }
-            Spacer(Modifier.height(18.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-                FakeControlButton(Icons.Rounded.GroupAdd, "Add call", false, {}, enabled = false)
-                FakeControlButton(Icons.Rounded.Pause, "Hold", false, {}, enabled = false)
-                FakeControlButton(Icons.Rounded.FiberManualRecord, "Record", false, onRecordInfo, enabled = false)
-            }
-        }
-    }
-
-    @Composable
-    private fun FakeControlButton(
-        icon: androidx.compose.ui.graphics.vector.ImageVector,
-        label: String,
-        active: Boolean,
-        onClick: () -> Unit,
-        enabled: Boolean = true
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.alpha(if (enabled) 1f else 0.35f)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(56.dp)
-                    .background(
-                        if (active) Color.White.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.10f),
-                        CircleShape
+                    InCallHeader(
+                        stateText = if (state == FakeCallState.ACTIVE) timer else status,
+                        displayName = name,
+                        number = number,
+                        simInfo = simInfo,
+                        contactBitmap = bitmap,
+                        animateAvatar = isConnecting
                     )
-                    .clickable(enabled = enabled, onClick = onClick),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = label,
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
+                }
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                    when {
+                        keypad -> InCallDtmfPad(
+                            digits = digits,
+                            onDigit = { digit ->
+                                dtmfDigits.value += digit
+                                playDtmfTone(digit)
+                            },
+                            onBackspace = { dtmfDigits.value = dtmfDigits.value.dropLast(1) },
+                            onClose = { keypadOpen.value = false }
+                        )
+                        showActiveControls || isConnecting -> ActiveCallControls(
+                            context = context,
+                            isMuted = muted,
+                            speakerOn = speaker,
+                            isOnHold = false,
+                            isRecording = false,
+                            multipleCalls = false,
+                            dialingMode = isConnecting,
+                            onKeypad = { keypadOpen.value = true },
+                            onAddCall = {
+                                Toast.makeText(context, "Adding a call is not available for fake calls", Toast.LENGTH_SHORT).show()
+                            },
+                            onRecord = {
+                                Toast.makeText(context, "Recording is not available for fake calls", Toast.LENGTH_SHORT).show()
+                            },
+                            onToggleMute = { toggleMute() },
+                            onToggleSpeaker = { toggleSpeaker() },
+                            onToggleHold = {
+                                Toast.makeText(context, "Hold is not available for fake calls", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                        state == FakeCallState.DISCONNECTED -> Spacer(Modifier.height(8.dp))
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    if (state != FakeCallState.DISCONNECTED) EndCallButton(onEndCall = { userEndCall() })
+                }
             }
-            Spacer(Modifier.height(6.dp))
-            Text(label, fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f), fontWeight = FontWeight.Medium)
         }
     }
 }

@@ -55,7 +55,10 @@ import com.smartdialerpro.android.ui.screens.contacts.ContactEditorScreen
 import com.smartdialerpro.android.ui.screens.contacts.ContactsScreen
 import com.smartdialerpro.android.ui.screens.contacts.FavoritesSpeedDialScreen
 import com.smartdialerpro.android.ui.screens.home.HomeScreen
+import com.smartdialerpro.android.service.FakeCallSession
+import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.screens.incall.InCallActivity
+import kotlinx.coroutines.delay
 import com.smartdialerpro.android.ui.screens.profile.ContactProfileScreen
 import com.smartdialerpro.android.ui.screens.search.UniversalSearchScreen
 import com.smartdialerpro.android.ui.screens.settings.BlockedNumbersScreen
@@ -179,6 +182,8 @@ fun MainScreen() {
             val duration by CallManager.duration.collectAsState()
             val number by CallManager.callNumber.collectAsState()
             val callerName by CallManager.callerName.collectAsState()
+            val fakeCallActive by FakeCallSession.activeFlow.collectAsState()
+            val fakeCallConnected by FakeCallSession.connectedFlow.collectAsState()
             if (callState != Call.STATE_DISCONNECTED && callState != Call.STATE_NEW) {
                 val label = callerName?.takeIf { it.isNotBlank() } ?: number.ifBlank { "Ongoing call" }
                 Row(
@@ -197,6 +202,45 @@ fun MainScreen() {
                     Spacer(Modifier.width(10.dp))
                     Text(
                         if (callState == Call.STATE_ACTIVE) "$label • ${String.format("%02d:%02d", duration / 60, duration % 60)}" else label,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1
+                    )
+                    Text("Return", color = MaterialTheme.colorScheme.onPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            } else if (fakeCallActive) {
+                // Same return-to-call banner as a real call, for a Magic call.
+                var fakeTick by remember { mutableStateOf(0L) }
+                LaunchedEffect(fakeCallActive) {
+                    while (fakeCallActive) {
+                        delay(1000)
+                        fakeTick++
+                    }
+                }
+                val fakeLabel = FakeCallSession.name.takeIf { it.isNotBlank() }
+                    ?: FakeCallSession.number.ifBlank { "Ongoing call" }
+                val fakeTimerText = if (fakeCallConnected && FakeCallSession.startTimeMillis > 0L) {
+                    val elapsed = ((System.currentTimeMillis() - FakeCallSession.startTimeMillis) / 1000).coerceAtLeast(0)
+                    " • ${String.format("%02d:%02d", elapsed / 60, elapsed % 60)}"
+                } else ""
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)))
+                        .clickable {
+                            context.startActivity(Intent(context, FakeCallActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                            })
+                        }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Phone, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "$fakeLabel$fakeTimerText",
                         color = MaterialTheme.colorScheme.onPrimary,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp,
