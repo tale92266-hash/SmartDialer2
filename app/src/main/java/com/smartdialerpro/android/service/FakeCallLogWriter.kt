@@ -99,6 +99,16 @@ object FakeCallLogWriter {
         deriveGeocodedLocation(number, countryIso)?.let {
             values.put(CallLog.Calls.GEOCODED_LOCATION, it)
         }
+        // Post-dial digits: anything after a pause (,) or wait (;) in
+        // the dialled number, exactly as a real dialled row stores it.
+        val postDial = number.substringAfter(',', "").substringAfter(';', "")
+            .filter { it.isDigit() || it == '*' || it == '#' || it == '+' }
+        if (postDial.isNotBlank()) {
+            values.put(CallLog.Calls.POST_DIAL_DIGITS, postDial)
+        }
+        if (isMissed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            values.put(CallLog.Calls.MISSED_REASON, CallLog.Calls.MISSED_REASON_NOT_ANSWERED)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isMissed && durationSecs > 0) {
             val jitter = 0.85 + (Math.random() * 0.3)
             values.put(CallLog.Calls.DATA_USAGE, (durationSecs * 1600L * jitter).toLong())
@@ -122,8 +132,12 @@ object FakeCallLogWriter {
                 } catch (_: SecurityException) {
                 }
                 if (!handles.isNullOrEmpty()) {
-                    var selectedHandle = handles[0]
-                    if (forceSimSlot >= 0 && forceSimSlot < handles.size) selectedHandle = handles[forceSimSlot]
+                    // Match the handle to the requested SIM by
+                    // subscription/extras — the order of call-capable
+                    // accounts is not guaranteed to follow slot order.
+                    val selectedHandle = selectPhoneAccountHandle(
+                        context, telecomManager, handles, forceSimSlot
+                    ) ?: handles[0]
                     values.put(CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME, selectedHandle.componentName.flattenToString())
                     values.put(CallLog.Calls.PHONE_ACCOUNT_ID, selectedHandle.id)
                     try {
@@ -149,25 +163,68 @@ object FakeCallLogWriter {
         return verifyRow(context, number, expectedDate, durationSecs)
     }
 
+    /** Picks the PhoneAccountHandle for the requested SIM slot. */
+    private fun selectPhoneAccountHandle(
+        context: Context,
+        telecomManager: TelecomManager,
+        handles: List<PhoneAccountHandle>,
+        forceSimSlot: Int
+    ): PhoneAccountHandle? {
+        val targetSub = try {
+            SubscriptionManager.from(context)?.activeSubscriptionInfoList
+                ?.firstOrNull { it.simSlotIndex == forceSimSlot }
+        } catch (_: Throwable) {
+            null
+        }
+        for (handle in handles) {
+            val account = try { telecomManager.getPhoneAccount(handle) } catch (_: Throwable) { null }
+                ?: continue
+            val extrasSlot = account.extras?.getInt("slot", -1) ?: -1
+            val extrasSlotId = account.extras?.getInt("slot_id", -1) ?: -1
+            if (extrasSlot == forceSimSlot || extrasSlotId == forceSimSlot) return handle
+            if (targetSub != null) {
+                if (handle.id == targetSub.subscriptionId.toString() ||
+                    handle.id.contains(targetSub.subscriptionId.toString(), ignoreCase = true)
+                ) return handle
+                val addr = account.address?.schemeSpecificPart
+                if (!addr.isNullOrBlank() && !targetSub.number.isNullOrBlank() &&
+                    PhoneNumberUtils.compare(addr, targetSub.number)
+                ) return handle
+            }
+        }
+        return if (forceSimSlot in handles.indices) handles[forceSimSlot] else handles.firstOrNull()
+    }
+
     /** Insert, retrying with fewer columns when the provider rejects one. A null Uri counts as failure. */
     private fun insertRow(context: Context, values: ContentValues): Boolean {
         try {
             val uri = context.contentResolver.insert(CallLog.Calls.CONTENT_URI, values)
             if (uri != null) return true
-            Log.w(TAG, "Insert returned null, retrying with core set")
+            Log.w(TAG, "Insert returned null, retrying without exotic columns")
         } catch (t: Throwable) {
-            Log.w(TAG, "Full-column insert failed, retrying with core set", t)
+            Log.w(TAG, "Full-column insert failed, retrying without exotic columns", t)
+        }
+        // First retry: drop only the exotic columns and KEEP the SIM /
+        // phone-account columns, so a rejected extra never costs the
+        // SIM info in the log row.
+        try {
+            values.remove(CallLog.Calls.GEOCODED_LOCATION)
+            values.remove(CallLog.Calls.DATA_USAGE)
+            values.remove(CallLog.Calls.FEATURES)
+            values.remove("presentation")
+            values.remove(COL_NUMBERLABEL)
+            values.remove(CallLog.Calls.POST_DIAL_DIGITS)
+            val uri = context.contentResolver.insert(CallLog.Calls.CONTENT_URI, values)
+            if (uri != null) return true
+            Log.w(TAG, "Exotic-stripped insert returned null, retrying without account columns")
+        } catch (t: Throwable) {
+            Log.w(TAG, "Exotic-stripped insert failed, retrying without account columns", t)
         }
         try {
             values.remove(CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME)
             values.remove(CallLog.Calls.PHONE_ACCOUNT_ID)
             values.remove(COL_PHONE_ACCOUNT_ADDRESS)
             values.remove(COL_SUB_ID)
-            values.remove(COL_NUMBERLABEL)
-            values.remove("presentation")
-            values.remove(CallLog.Calls.GEOCODED_LOCATION)
-            values.remove(CallLog.Calls.DATA_USAGE)
-            values.remove(CallLog.Calls.FEATURES)
             val uri = context.contentResolver.insert(CallLog.Calls.CONTENT_URI, values)
             if (uri != null) return true
             Log.w(TAG, "Core-set insert returned null, retrying minimal set")
@@ -196,7 +253,7 @@ object FakeCallLogWriter {
             var found = false
             context.contentResolver.query(
                 CallLog.Calls.CONTENT_URI,
-                arrayOf(CallLog.Calls.DATE, CallLog.Calls.DURATION),
+                arrayOf(CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.PHONE_ACCOUNT_ID),
                 "${CallLog.Calls.NUMBER} = ?",
                 arrayOf(number),
                 "${CallLog.Calls.DATE} DESC LIMIT 1"
@@ -205,6 +262,9 @@ object FakeCallLogWriter {
                     val date = cursor.getLong(0)
                     val duration = cursor.getInt(1)
                     found = duration == durationSecs && kotlin.math.abs(date - expectedDate) <= 3000L
+                    if (found && cursor.isNull(2)) {
+                        Log.w(TAG, "Call-log row verified but has no phone-account id — SIM will show blank")
+                    }
                 }
             }
             if (!found) Log.w(TAG, "Inserted row did not read back for $number")
@@ -251,6 +311,10 @@ object FakeCallLogWriter {
                     }
                 }
                 if (photoUri != null) values.put(CallLog.Calls.CACHED_PHOTO_URI, photoUri)
+                val photoIdIdx = cursor.getColumnIndex("photo_id")
+                if (photoIdIdx >= 0 && !cursor.isNull(photoIdIdx)) {
+                    values.put(CallLog.Calls.CACHED_PHOTO_ID, cursor.getLong(photoIdIdx))
+                }
                 if (lookupKey != null) {
                     try {
                         val lookupUri = ContactsContract.Contacts.getLookupUri(contactId, lookupKey)

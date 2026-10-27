@@ -212,18 +212,21 @@ fun MainScreen() {
                 }
             } else if (fakeCallActive) {
                 // Same return-to-call banner as a real call, for a Magic call.
-                var fakeTick by remember { mutableStateOf(0L) }
-                LaunchedEffect(fakeCallActive) {
+                // fakeElapsed is READ below, so the 1s ticker actually
+                // recomposes the banner and the timer ticks.
+                var fakeElapsed by remember { mutableStateOf(0L) }
+                LaunchedEffect(fakeCallActive, fakeCallConnected) {
                     while (fakeCallActive) {
+                        fakeElapsed = if (fakeCallConnected && FakeCallSession.startTimeMillis > 0L) {
+                            ((System.currentTimeMillis() - FakeCallSession.startTimeMillis) / 1000).coerceAtLeast(0)
+                        } else 0L
                         delay(1000)
-                        fakeTick++
                     }
                 }
                 val fakeLabel = FakeCallSession.name.takeIf { it.isNotBlank() }
                     ?: FakeCallSession.number.ifBlank { "Ongoing call" }
                 val fakeTimerText = if (fakeCallConnected && FakeCallSession.startTimeMillis > 0L) {
-                    val elapsed = ((System.currentTimeMillis() - FakeCallSession.startTimeMillis) / 1000).coerceAtLeast(0)
-                    " • ${String.format("%02d:%02d", elapsed / 60, elapsed % 60)}"
+                    " • ${String.format("%02d:%02d", fakeElapsed / 60, fakeElapsed % 60)}"
                 } else ""
                 Row(
                     modifier = Modifier

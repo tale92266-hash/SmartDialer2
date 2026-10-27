@@ -3,10 +3,7 @@ package com.smartdialerpro.android.ui.screens.fakecall
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.media.Ringtone
-import android.media.RingtoneManager
+import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
@@ -80,8 +77,8 @@ class FakeCallActivity : ComponentActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var engine: FakeCallEngine? = null
-    private var ringtonePlayer: MediaPlayer? = null
-    private var ringtoneFallback: Ringtone? = null
+    private var ringbackTone: ToneGenerator? = null
+    private var isRingbackPlaying = false
     private var toneGenerator: ToneGenerator? = null
     private var autoDisconnectRunnable: Runnable? = null
     private var isEnding = false
@@ -175,6 +172,11 @@ class FakeCallActivity : ComponentActivity() {
                 isSpeaker.value = speaker
                 FakeCallSession.muted = muted
                 FakeCallSession.speaker = speaker
+                // Speaker toggled while the ringback tone is playing:
+                // replay it on the new route, like the original.
+                if (isRingbackPlaying) {
+                    playRingbackTone(speaker)
+                }
                 AmbientSoundManager.getInstance(this@FakeCallActivity).setSpeakerphone(speaker)
                 FakeCallService.updateState(this@FakeCallActivity)
             }
@@ -282,57 +284,49 @@ class FakeCallActivity : ComponentActivity() {
     }
 
     /**
-     * The ringing tune, played audibly through the speaker path at full
-     * volume so it is heard like a real call's ringing — never just a
-     * vibration. Falls back to the system Ringtone player if the
-     * MediaPlayer route fails.
+     * The outgoing ringback tone — the "turu turu" a real outgoing
+     * call plays while the other side rings. Ported from the original
+     * Dialar FakeCallActivity: ToneGenerator TONE_SUP_RINGTONE on the
+     * voice-call stream (earpiece, like a real call), or the music
+     * stream at full volume when the speaker is on. An incoming
+     * ringtone tune is never played for an outgoing call.
      */
     private fun startRinging() {
+        playRingbackTone(isSpeaker.value)
+    }
+
+    private fun playRingbackTone(speaker: Boolean) {
+        stopRingbackTone()
         try {
-            stopRinging()
-            val ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            ringtonePlayer = MediaPlayer().apply {
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                setDataSource(this@FakeCallActivity, ringtoneUri)
-                isLooping = true
-                setVolume(1.0f, 1.0f)
-                prepare()
-                start()
+            val stream = if (speaker) {
+                android.media.AudioManager.STREAM_MUSIC
+            } else {
+                android.media.AudioManager.STREAM_VOICE_CALL
             }
+            ringbackTone = ToneGenerator(stream, if (speaker) 100 else 85)
+            ringbackTone?.startTone(ToneGenerator.TONE_SUP_RINGTONE)
+            isRingbackPlaying = true
         } catch (_: Throwable) {
-            ringtonePlayer = null
-            try {
-                ringtoneFallback = RingtoneManager.getRingtone(
-                    this,
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-                )?.apply { play() }
-            } catch (_: Throwable) {
-            }
+            ringbackTone = null
+            isRingbackPlaying = false
         }
     }
 
+    private fun stopRingbackTone() {
+        try {
+            ringbackTone?.stopTone()
+        } catch (_: Throwable) {
+        }
+        try {
+            ringbackTone?.release()
+        } catch (_: Throwable) {
+        }
+        ringbackTone = null
+        isRingbackPlaying = false
+    }
+
     private fun stopRinging() {
-        try {
-            ringtonePlayer?.let {
-                try {
-                    if (it.isPlaying) it.stop()
-                } catch (_: Throwable) {
-                }
-                it.release()
-            }
-        } catch (_: Throwable) {
-        }
-        ringtonePlayer = null
-        try {
-            ringtoneFallback?.stop()
-        } catch (_: Throwable) {
-        }
-        ringtoneFallback = null
+        stopRingbackTone()
     }
 
     private fun toggleMute() {

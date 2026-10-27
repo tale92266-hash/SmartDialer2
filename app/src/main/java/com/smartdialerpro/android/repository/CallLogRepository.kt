@@ -23,6 +23,8 @@ class CallLogRepository(private val context: Context) {
     companion object {
         private const val TAG = "CallLogRepository"
         private const val CACHE_FILE = "recent_calls_disk_cache.json"
+        /** Raw CallLog column holding the subscription id (no public constant). */
+        private const val COL_SUB_ID = "sub_id"
 
         @Volatile
         private var memoryCache: List<RecentCall> = emptyList()
@@ -113,7 +115,8 @@ class CallLogRepository(private val context: Context) {
             CallLog.Calls.TYPE,
             CallLog.Calls.DATE,
             CallLog.Calls.DURATION,
-            CallLog.Calls.PHONE_ACCOUNT_ID
+            CallLog.Calls.PHONE_ACCOUNT_ID,
+            COL_SUB_ID
         )
 
         try {
@@ -131,6 +134,7 @@ class CallLogRepository(private val context: Context) {
                 val dateIdx = cursor.getColumnIndex(CallLog.Calls.DATE)
                 val durIdx = cursor.getColumnIndex(CallLog.Calls.DURATION)
                 val accountIdx = cursor.getColumnIndex(CallLog.Calls.PHONE_ACCOUNT_ID)
+                val subIdIdx = cursor.getColumnIndex(COL_SUB_ID)
                 if (numIdx < 0) return@withContext memoryCache
 
                 while (cursor.moveToNext() && calls.size < limit.coerceAtLeast(1)) {
@@ -138,6 +142,7 @@ class CallLogRepository(private val context: Context) {
                     if (number.isBlank()) continue
                     val accountId = if (accountIdx >= 0) cursor.getString(accountIdx) else null
                     val account = accountId?.let(phoneAccountsById::get)
+                    val rowSubId = if (subIdIdx >= 0 && !cursor.isNull(subIdIdx)) cursor.getLong(subIdIdx) else null
                     val contact = findContact(number, exactContacts, contacts)
                     val resolvedName = if (nameIdx >= 0) cursor.getString(nameIdx)?.takeIf { it.isNotBlank() } else null
                         ?: contact?.name
@@ -149,7 +154,7 @@ class CallLogRepository(private val context: Context) {
                         type = if (typeIdx >= 0) cursor.getInt(typeIdx) else -1,
                         date = if (dateIdx >= 0) cursor.getLong(dateIdx) else 0L,
                         duration = if (durIdx >= 0) cursor.getLong(durIdx).coerceAtLeast(0L) else 0L,
-                        simSlot = resolveSlot(accountId, account, subscriptions),
+                        simSlot = resolveSlot(accountId, account, subscriptions, rowSubId),
                         photoUri = contact?.photoUri
                     )
                 }
@@ -186,11 +191,25 @@ class CallLogRepository(private val context: Context) {
         return contacts.firstOrNull { PhoneNumberUtils.compare(it.number, number) }
     }
 
-    private fun resolveSlot(accountId: String?, account: PhoneAccount?, subscriptions: List<SubscriptionInfo>): Int? {
-        if (accountId.isNullOrBlank()) return null
+    private fun resolveSlot(
+        accountId: String?,
+        account: PhoneAccount?,
+        subscriptions: List<SubscriptionInfo>,
+        rowSubId: Long? = null
+    ): Int? {
+        // 1. The row's own sub_id is the most reliable SIM link: the
+        // system provider writes it for real calls, and our fake-call
+        // writer writes it too.
+        if (rowSubId != null) {
+            val bySub = subscriptions.firstOrNull { it.subscriptionId.toInt() == rowSubId.toInt() }
+            if (bySub != null && bySub.simSlotIndex >= 0) return bySub.simSlotIndex + 1
+        }
+        if (accountId.isNullOrBlank() && account == null) return null
         val matchingSub = subscriptions.firstOrNull { sub ->
             accountId == sub.subscriptionId.toString() ||
-                accountId.contains(sub.subscriptionId.toString(), ignoreCase = true)
+                (!accountId.isNullOrBlank() && accountId.contains(sub.subscriptionId.toString(), ignoreCase = true)) ||
+                (!account?.address?.schemeSpecificPart.isNullOrBlank() && !sub.number.isNullOrBlank() &&
+                    PhoneNumberUtils.compare(account!!.address.schemeSpecificPart, sub.number))
         }
         if (matchingSub != null && matchingSub.simSlotIndex >= 0) return matchingSub.simSlotIndex + 1
 
@@ -199,6 +218,12 @@ class CallLogRepository(private val context: Context) {
         if (explicitSlot >= 0) return explicitSlot + 1
         val slotId = extras?.getInt("slot_id", -1) ?: -1
         if (slotId >= 0) return slotId + 1
+
+        // Last resort: SIM accounts are often labelled "SIM 1" / "SIM 2".
+        val label = account?.label?.toString().orEmpty()
+        val simLabelMatch = Regex("(?i)\\bSIM\\s*(\\d)\\b").find(label)
+        val labelSlot = simLabelMatch?.groupValues?.getOrNull(1)?.toIntOrNull()?.minus(1)
+        if (labelSlot != null && labelSlot >= 0) return labelSlot + 1
 
         return null
     }
