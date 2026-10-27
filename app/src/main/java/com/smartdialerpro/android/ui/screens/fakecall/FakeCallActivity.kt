@@ -144,7 +144,9 @@ class FakeCallActivity : ComponentActivity() {
 
         displayName.value = number
         resolveContactAndSim()
-        FakeCallSession.start(displayName.value, number, simSlot, null, durationSecs)
+        val initialSimLabel = FakeCallSim.simLabelForSlot(this, simSlot)
+        simInfoText.value = initialSimLabel
+        FakeCallSession.start(displayName.value, number, simSlot, initialSimLabel, durationSecs)
         FakeCallService.startFakeCall(this)
 
         val listener = object : FakeCallEngineListener {

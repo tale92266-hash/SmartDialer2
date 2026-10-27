@@ -374,7 +374,7 @@ fun SettingsSystemScreen(navController: NavController? = null) {
         SettingRow(
             icon = Icons.Rounded.Info,
             title = "About SmartDialer",
-            subtitle = "Version 1.0"
+            subtitle = "Version 1.0 • ${com.smartdialerpro.android.util.BuildInfo.LABEL}"
         ) {}
     }
 }

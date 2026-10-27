@@ -132,9 +132,7 @@ object FakeCallLogWriter {
                     // Match the handle to the requested SIM by
                     // subscription/extras — the order of call-capable
                     // accounts is not guaranteed to follow slot order.
-                    val selectedHandle = selectPhoneAccountHandle(
-                        context, telecomManager, handles, forceSimSlot
-                    ) ?: handles[0]
+                    val selectedHandle = selectPhoneAccountHandle(handles, forceSimSlot) ?: handles[0]
                     values.put(CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME, selectedHandle.componentName.flattenToString())
                     values.put(CallLog.Calls.PHONE_ACCOUNT_ID, selectedHandle.id)
                     try {
@@ -160,38 +158,17 @@ object FakeCallLogWriter {
         return verifyRow(context, number, expectedDate, durationSecs)
     }
 
-    /** Picks the PhoneAccountHandle for the requested SIM slot. */
+    /**
+     * Picks the PhoneAccountHandle for the requested SIM slot by pure
+     * list index — exactly like the original Dialar code
+     * (handles[forceSimSlot]). Any smarter matching (extras, address,
+     * id-contains) can pick a different handle than the read path
+     * resolves, so the written slot and the displayed slot disagree.
+     */
     private fun selectPhoneAccountHandle(
-        context: Context,
-        telecomManager: TelecomManager,
         handles: List<PhoneAccountHandle>,
         forceSimSlot: Int
     ): PhoneAccountHandle? {
-        val targetSub = try {
-            SubscriptionManager.from(context)?.activeSubscriptionInfoList
-                ?.firstOrNull { it.simSlotIndex == forceSimSlot }
-        } catch (_: Throwable) {
-            null
-        }
-        for (handle in handles) {
-            val account = try { telecomManager.getPhoneAccount(handle) } catch (_: Throwable) { null }
-                ?: continue
-            val extrasSlot = account.extras?.getInt("slot", -1) ?: -1
-            val extrasSlotId = account.extras?.getInt("slot_id", -1) ?: -1
-            if (extrasSlot == forceSimSlot || extrasSlotId == forceSimSlot) return handle
-            if (targetSub != null) {
-                // Exact id match only: subscription ids are 1-2 digit
-                // numbers, and a contains() check false-matches almost
-                // any long handle id (e.g. an ICCID).
-                if (handle.id == targetSub.subscriptionId.toString()) return handle
-                val addr = account.address?.schemeSpecificPart
-                if (!addr.isNullOrBlank() && !targetSub.number.isNullOrBlank() &&
-                    PhoneNumberUtils.compare(addr, targetSub.number)
-                ) return handle
-            }
-        }
-        // No exact match: fall back to list position, exactly like the
-        // original Dialar code did (handles[forceSimSlot]).
         return if (forceSimSlot in handles.indices) handles[forceSimSlot] else handles.firstOrNull()
     }
 
