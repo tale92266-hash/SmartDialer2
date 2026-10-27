@@ -1,0 +1,35 @@
+<resources>
+    <string name="app_name">SmartDialer</string>
+    <string name="home">Home</string>
+    <string name="contacts">Contacts</string>
+    <string name="recents">Recents</string>
+    <string name="dialer">Dialer</string>
+    
+    <string name="home_title">Home</string>
+    <string name="home_greeting">Good morning</string>
+    <string name="home_subtitle">Your calls and contacts, all in one place.</string>
+    
+    <string name="quick_actions">Quick actions</string>
+    <string name="favorites">Favorites</string>
+    <string name="recent_calls">Recent calls</string>
+    <string name="see_all">See all</string>
+    <string name="search">Search</string>
+    
+    <string name="add">Add</string>
+    <string name="all">All</string>
+    <string name="missed">Missed</string>
+    <string name="delete">Delete</string>
+    <string name="dial">Dial</string>
+    
+    <string name="no_contacts_title">No contacts</string>
+    <string name="no_contacts_desc">Your contacts will appear here once\nSmartDialer has access.</string>
+    <string name="allow_access">Allow Access</string>
+    
+    <string name="no_recents_title">No recent calls</string>
+    <string name="no_recents_desc">Your incoming and outgoing calls\nwill appear here.</string>
+    <string name="open_dialer">Open Dialer</string>
+    
+    <string name="no_favorites_title">No favorites yet</string>
+    <string name="no_favorites_desc">Add your favorite contacts\nfor quick calling.</string>
+    <string name="add_favorites">Add Favorites</string>
+</resources>

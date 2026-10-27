@@ -1,0 +1,486 @@
+package com.smartdialerpro.android.ui.screens.contacts
+
+import android.Manifest
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.speech.RecognizerIntent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.navigation.NavController
+import com.smartdialerpro.android.data.Contact
+import com.smartdialerpro.android.ui.components.EmptyStateView
+import com.smartdialerpro.android.ui.navigation.Screen
+import com.smartdialerpro.android.util.Utils
+import com.smartdialerpro.android.viewmodel.ContactsViewModel
+import kotlinx.coroutines.launch
+
+sealed interface ContactListItem {
+    data class Header(val title: String) : ContactListItem
+    data class Item(val contact: Contact, val sectionTag: String = "") : ContactListItem
+}
+
+@Composable
+fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
+    val context = LocalContext.current
+    var hasPermission by remember { mutableStateOf(hasReadContacts(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        hasPermission = granted
+        if (granted) viewModel.loadContacts(force = false)
+    }
+    val writeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.loadContacts(force = true)
+    }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = hasReadContacts(context)
+                hasPermission = granted
+                if (granted) viewModel.loadContacts(force = false)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val contacts by viewModel.contacts.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+
+    val structuredItems = remember(contacts, searchQuery) {
+        val query = searchQuery.trim()
+        val digits = query.filter(Char::isDigit)
+
+        val filtered = if (query.isBlank()) {
+            contacts
+        } else {
+            contacts.filter { contact ->
+                contact.name.contains(query, true) ||
+                    contact.number.contains(query, true) ||
+                    (digits.isNotBlank() && contact.number.filter(Char::isDigit).contains(digits))
+            }
+        }
+
+        val list = ArrayList<ContactListItem>(filtered.size + 30)
+
+        if (query.isBlank()) {
+            val favorites = filtered.filter { it.isFavorite }.sortedBy { it.name.lowercase() }
+            if (favorites.isNotEmpty()) {
+                list.add(ContactListItem.Header("Favorites"))
+                favorites.forEach { list.add(ContactListItem.Item(it, sectionTag = "fav")) }
+            }
+
+            val grouped = filtered.groupBy { contact ->
+                val firstChar = contact.name.trim().firstOrNull()?.uppercaseChar() ?: '#'
+                if (firstChar in 'A'..'Z') firstChar.toString() else "#"
+            }.toSortedMap()
+
+            for (letter in 'A'..'Z') {
+                val key = letter.toString()
+                val group = grouped[key]
+                if (!group.isNullOrEmpty()) {
+                    list.add(ContactListItem.Header(key))
+                    group.sortedBy { it.name.lowercase() }.forEach { list.add(ContactListItem.Item(it, sectionTag = key)) }
+                }
+            }
+
+            val hashGroup = grouped["#"]
+            if (!hashGroup.isNullOrEmpty()) {
+                list.add(ContactListItem.Header("#"))
+                hashGroup.sortedBy { it.name.lowercase() }.forEach { list.add(ContactListItem.Item(it, sectionTag = "hash")) }
+            }
+        } else {
+            filtered.sortedBy { it.name.lowercase() }.forEach { list.add(ContactListItem.Item(it, sectionTag = "search")) }
+        }
+
+        list
+    }
+
+    val sectionIndexMap = remember(structuredItems) {
+        val map = HashMap<String, Int>()
+        structuredItems.forEachIndexed { index, item ->
+            if (item is ContactListItem.Header) {
+                map[item.title] = index
+            }
+        }
+        map
+    }
+
+    val availableLetters = remember(structuredItems) {
+        structuredItems.filterIsInstance<ContactListItem.Header>().map { it.title }.toSet()
+    }
+
+    val sidebarLetters = remember {
+        listOf("★") + ('A'..'Z').map { it.toString() } + listOf("#")
+    }
+
+    var activePopupLetter by remember { mutableStateOf<String?>(null) }
+
+    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        if (!hasPermission) {
+            EmptyStateView(
+                icon = Icons.Rounded.Contacts,
+                title = "Access Required",
+                description = "Allow access to your contacts to quickly find and call people.",
+                actionText = "Grant Permission",
+                onActionClick = { launcher.launch(Manifest.permission.READ_CONTACTS) }
+            )
+        } else {
+            ContactsHeader(searchQuery, viewModel::updateSearchQuery)
+
+            val isSearching = searchQuery.isNotBlank()
+            val shouldShowEmpty = if (isSearching) structuredItems.isEmpty() else contacts.isEmpty()
+
+            if (shouldShowEmpty) {
+                EmptyStateView(
+                    icon = Icons.Rounded.SearchOff,
+                    title = if (isSearching) "No contacts found" else "No contacts yet",
+                    description = if (isSearching) "Try a different name or number." else "Your saved contacts will appear here.",
+                    actionText = if (isSearching) "Clear search" else null,
+                    onActionClick = if (isSearching) ({ viewModel.updateSearchQuery("") }) else null
+                )
+            } else {
+                Box(Modifier.fillMaxSize()) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 24.dp, end = 26.dp)
+                    ) {
+                        itemsIndexed(
+                            items = structuredItems,
+                            key = { index, item ->
+                                when (item) {
+                                    is ContactListItem.Header -> "hdr_${item.title}_$index"
+                                    is ContactListItem.Item -> "contact_${item.sectionTag}_${item.contact.id}_${item.contact.number}_$index"
+                                }
+                            }
+                        ) { _, item ->
+                            when (item) {
+                                is ContactListItem.Header -> {
+                                    Surface(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        color = MaterialTheme.colorScheme.background
+                                    ) {
+                                        Text(
+                                            text = item.title,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)
+                                        )
+                                    }
+                                }
+                                is ContactListItem.Item -> {
+                                    ContactRow(
+                                        contact = item.contact,
+                                        onRowClick = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.contact.number))) },
+                                        onCall = { Utils.makeCall(context, item.contact.number) },
+                                        onWhatsApp = { openWhatsApp(context, item.contact.number) },
+                                        onFavorite = {
+                                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                                                viewModel.toggleFavorite(item.contact)
+                                            } else {
+                                                writeLauncher.launch(Manifest.permission.WRITE_CONTACTS)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (searchQuery.isBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .width(26.dp)
+                                .padding(vertical = 4.dp)
+                                .pointerInput(sidebarLetters, sectionIndexMap) {
+                                    detectDragGestures(
+                                        onDragStart = { offset ->
+                                            if (size.height > 0) {
+                                                val index = ((offset.y / size.height) * sidebarLetters.size)
+                                                    .toInt()
+                                                    .coerceIn(0, sidebarLetters.lastIndex)
+                                                val char = sidebarLetters[index]
+                                                val sectionKey = if (char == "★") "Favorites" else char
+                                                activePopupLetter = sectionKey
+                                                sectionIndexMap[sectionKey]?.let { targetIdx ->
+                                                    coroutineScope.launch { listState.scrollToItem(targetIdx) }
+                                                }
+                                            }
+                                        },
+                                        onDrag = { change, _ ->
+                                            if (size.height > 0) {
+                                                val index = ((change.position.y / size.height) * sidebarLetters.size)
+                                                    .toInt()
+                                                    .coerceIn(0, sidebarLetters.lastIndex)
+                                                val char = sidebarLetters[index]
+                                                val sectionKey = if (char == "★") "Favorites" else char
+                                                activePopupLetter = sectionKey
+                                                sectionIndexMap[sectionKey]?.let { targetIdx ->
+                                                    coroutineScope.launch { listState.scrollToItem(targetIdx) }
+                                                }
+                                            }
+                                        },
+                                        onDragEnd = { activePopupLetter = null },
+                                        onDragCancel = { activePopupLetter = null }
+                                    )
+                                },
+                            contentAlignment = Alignment.CenterEnd
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxHeight(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                sidebarLetters.forEach { char ->
+                                    val sectionKey = if (char == "★") "Favorites" else char
+                                    val exists = availableLetters.contains(sectionKey)
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth()
+                                            .clickable(enabled = exists) {
+                                                activePopupLetter = sectionKey
+                                                sectionIndexMap[sectionKey]?.let { idx ->
+                                                    coroutineScope.launch { listState.scrollToItem(idx) }
+                                                }
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = char,
+                                            fontSize = if (char == "★") 8.5.sp else 7.5.sp,
+                                            lineHeight = 8.sp,
+                                            fontWeight = if (exists) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (exists) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    activePopupLetter?.let { letter ->
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
+                                shadowElevation = 8.dp,
+                                modifier = Modifier.size(72.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = if (letter == "Favorites") "★" else letter,
+                                        fontSize = if (letter == "Favorites") 28.sp else 32.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun hasReadContacts(context: Context) =
+    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+
+@Composable
+private fun ContactsHeader(searchQuery: String, onQueryChange: (String) -> Unit) {
+    val context = LocalContext.current
+    val voiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val spokenText = result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+            if (!spokenText.isNullOrBlank()) {
+                onQueryChange(spokenText)
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+        Text("Contacts", fontSize = 32.sp, fontWeight = FontWeight.Bold)
+        Text(
+            if (searchQuery.isBlank()) "Your people, grouped alphabetically" else "Searching contacts",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Search name or number") },
+            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+            trailingIcon = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onQueryChange("") },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Rounded.Close, "Clear search", modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak name or number")
+                                }
+                                voiceLauncher.launch(intent)
+                            } catch (_: Exception) {
+                                Toast.makeText(context, "Voice input not supported", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.Mic,
+                            contentDescription = "Voice search",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            },
+            singleLine = true,
+            shape = CircleShape,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                focusedBorderColor = Color.Transparent,
+                unfocusedBorderColor = Color.Transparent
+            )
+        )
+    }
+}
+
+@Composable
+fun ContactRow(
+    contact: Contact,
+    onRowClick: () -> Unit,
+    onCall: () -> Unit,
+    onWhatsApp: () -> Unit,
+    onFavorite: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onRowClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ContactAvatar(contact.name.ifBlank { contact.number }, contact.photoUri, 50.dp)
+        Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+            Text(contact.name.ifBlank { contact.number }, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text(contact.number, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        IconButton(onClick = onFavorite, modifier = Modifier.size(40.dp)) {
+            Icon(
+                if (contact.isFavorite) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                "Favorite",
+                tint = if (contact.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        IconButton(onClick = onCall, modifier = Modifier.size(40.dp)) {
+            Icon(Icons.Rounded.Call, "Call", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+fun ContactAvatar(name: String, photoUri: String?, size: androidx.compose.ui.unit.Dp) {
+    val context = LocalContext.current
+    var bitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(photoUri) {
+        bitmap = if (!photoUri.isNullOrBlank()) {
+            Utils.loadCachedAvatar(context, photoUri)
+        } else null
+    }
+
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(bitmap!!, "Contact photo", Modifier.fillMaxSize())
+        } else {
+            Text(
+                text = Utils.getAvatarInitial(name),
+                fontSize = (size.value * .38f).sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+private fun openWhatsApp(context: Context, number: String) {
+    val clean = number.filter { it.isDigit() || it == '+' }
+    if (clean.isBlank()) return
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("https://api.whatsapp.com/send?phone=$clean")
+            setPackage("com.whatsapp")
+        })
+    } catch (_: Throwable) {
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$clean")))
+        } catch (_: Throwable) {}
+    }
+}
