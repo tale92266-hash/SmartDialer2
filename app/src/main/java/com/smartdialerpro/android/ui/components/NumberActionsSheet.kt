@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -66,7 +67,8 @@ fun NumberActionsSheet(
     onOpenAddToExisting: (String) -> Unit,
     onToggleFavorite: () -> Unit,
     onCall: () -> Unit,
-    onOpenProfile: () -> Unit
+    onOpenProfile: () -> Unit,
+    onMagicCall: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -149,6 +151,10 @@ fun NumberActionsSheet(
             }
             SheetRow(Icons.Rounded.Call, "Call") {
                 onCall()
+                onDismiss()
+            }
+            SheetRow(Icons.Rounded.AutoAwesome, "Magic Call") {
+                onMagicCall(number)
                 onDismiss()
             }
             if (contact == null) {

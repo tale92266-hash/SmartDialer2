@@ -42,6 +42,8 @@ import androidx.navigation.NavController
 import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
+import com.smartdialerpro.android.ui.components.FakeCallSheet
+import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.ui.screens.contacts.ContactAvatar
 import com.smartdialerpro.android.util.Utils
@@ -56,6 +58,7 @@ fun UniversalSearchScreen(contactsViewModel: ContactsViewModel, recentsViewModel
     val contacts by contactsViewModel.contacts.collectAsState()
     val recentCalls by recentsViewModel.recentCalls.collectAsState()
     var sheetNumber by remember { mutableStateOf<String?>(null) }
+    var magicSheetNumber by remember { mutableStateOf<String?>(null) }
     var pendingFavorite by remember { mutableStateOf<Contact?>(null) }
     val favoriteWriteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -149,6 +152,18 @@ fun UniversalSearchScreen(contactsViewModel: ContactsViewModel, recentsViewModel
             onOpenProfile = {
                 sheetNumber = null
                 navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(number)))
+            },
+            onMagicCall = { magicSheetNumber = it }
+        )
+    }
+    magicSheetNumber?.let { magicNumber ->
+        FakeCallSheet(
+            number = magicNumber,
+            simSlot = 0,
+            onDismiss = { magicSheetNumber = null },
+            onGenuineCall = { genuineNumber -> Utils.makeCall(context, genuineNumber) },
+            onDirectCall = { fakeNumber, durationSecs, slot ->
+                FakeCallActivity.start(context, fakeNumber, durationSecs, slot)
             }
         )
     }

@@ -47,6 +47,8 @@ import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
 import com.smartdialerpro.android.ui.components.avatarColorsFor
 import com.smartdialerpro.android.ui.components.launchWhatsApp
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
+import com.smartdialerpro.android.ui.components.FakeCallSheet
+import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.util.Utils
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
@@ -112,6 +114,7 @@ fun ContactsScreen(
     val contacts by viewModel.contacts.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     var sheetNumber by remember { mutableStateOf<String?>(null) }
+    var magicSheetNumber by remember { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = searchQuery.isNotBlank()) { viewModel.updateSearchQuery("") }
 
@@ -397,6 +400,18 @@ fun ContactsScreen(
             onOpenProfile = {
                 sheetNumber = null
                 navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(number)))
+            },
+            onMagicCall = { magicSheetNumber = it }
+        )
+    }
+    magicSheetNumber?.let { magicNumber ->
+        FakeCallSheet(
+            number = magicNumber,
+            simSlot = 0,
+            onDismiss = { magicSheetNumber = null },
+            onGenuineCall = { genuineNumber -> Utils.makeCall(context, genuineNumber) },
+            onDirectCall = { fakeNumber, durationSecs, slot ->
+                FakeCallActivity.start(context, fakeNumber, durationSecs, slot)
             }
         )
     }

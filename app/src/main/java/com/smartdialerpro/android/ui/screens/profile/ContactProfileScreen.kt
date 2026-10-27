@@ -57,9 +57,11 @@ import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.repository.ContactsRepository
+import com.smartdialerpro.android.ui.components.FakeCallSheet
 import com.smartdialerpro.android.ui.components.SimSlotIcon
 import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
 import com.smartdialerpro.android.ui.components.launchWhatsApp
+import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.screens.contacts.ContactAvatar
 import com.smartdialerpro.android.util.Utils
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +108,7 @@ fun ContactProfileScreen(
     var userManuallySelectedSim by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMagicSheet by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableStateOf(0) }
     var pendingWhatsAppNumber by remember { mutableStateOf<String?>(null) }
     pendingWhatsAppNumber?.let { pendingNumber ->
@@ -310,6 +313,14 @@ fun ContactProfileScreen(
                         }
                     )
                     DropdownMenuItem(
+                        text = { Text("Magic Call") },
+                        leadingIcon = { Icon(Icons.Rounded.AutoAwesome, null) },
+                        onClick = {
+                            menuExpanded = false
+                            showMagicSheet = true
+                        }
+                    )
+                    DropdownMenuItem(
                         text = { Text("Block number") },
                         leadingIcon = { Icon(Icons.Rounded.Block, null, tint = MaterialTheme.colorScheme.error) },
                         onClick = {
@@ -325,7 +336,19 @@ fun ContactProfileScreen(
             }
         }
 
-        if (showDeleteDialog) {
+        if (showMagicSheet) {
+        FakeCallSheet(
+            number = number,
+            simSlot = (selectedSim?.slotIndex ?: 0).coerceAtLeast(0),
+            onDismiss = { showMagicSheet = false },
+            onGenuineCall = { genuineNumber -> placeRealCall(context, genuineNumber, selectedSim) },
+            onDirectCall = { fakeNumber, durationSecs, slot ->
+                FakeCallActivity.start(context, fakeNumber, durationSecs, slot)
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
             AlertDialog(
                 onDismissRequest = { showDeleteDialog = false },
                 title = { Text("Delete contact?") },

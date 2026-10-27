@@ -2,6 +2,7 @@ package com.smartdialerpro.android.ui.navigation
 
 import android.net.Uri
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Favorite
@@ -32,6 +33,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object SettingsRecording : Screen("settings_recording", "Recording", Icons.Rounded.FiberManualRecord)
     object SettingsPrivacy : Screen("settings_privacy", "Privacy & Blocked", Icons.Rounded.Security)
     object SettingsSystem : Screen("settings_system", "System & About", Icons.Rounded.Info)
+    object SettingsMagicCall : Screen("settings_magic_call", "Magic Call", Icons.Rounded.AutoAwesome)
     object ContactProfile : Screen("contact_profile/{number}", "Profile", Icons.Rounded.Person) {
         fun createRoute(number: String) = "contact_profile/$number"
     }

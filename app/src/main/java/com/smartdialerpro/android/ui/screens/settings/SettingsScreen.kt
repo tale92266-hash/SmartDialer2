@@ -1,10 +1,14 @@
 package com.smartdialerpro.android.ui.screens.settings
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,7 +22,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
+import com.smartdialerpro.android.service.AmbientSoundManager
 import com.smartdialerpro.android.ui.components.CompactTopBar
 import com.smartdialerpro.android.ui.navigation.Screen
 
@@ -70,6 +76,13 @@ fun SettingsScreen(navController: NavController? = null) {
                 title = "Privacy & Blocked",
                 summary = "Blocked numbers & app permissions"
             ) { navController?.navigate(Screen.SettingsPrivacy.route) }
+        }
+        item {
+            SettingsGroupCard(
+                icon = Icons.Rounded.AutoAwesome,
+                title = "Magic Call",
+                summary = "Fake calls, ambient sound & caller voice"
+            ) { navController?.navigate(Screen.SettingsMagicCall.route) }
         }
         item {
             SettingsGroupCard(
@@ -363,6 +376,137 @@ fun SettingsSystemScreen(navController: NavController? = null) {
             title = "About SmartDialer",
             subtitle = "Version 1.0"
         ) {}
+    }
+}
+
+@Composable
+fun SettingsMagicCallScreen(navController: NavController? = null) {
+    val context = LocalContext.current
+    val ambient = remember { AmbientSoundManager.getInstance(context) }
+    var preset by remember { mutableStateOf(ambient.getCurrentPreset()) }
+    var isRecording by remember { mutableStateOf(ambient.isRecordingVoice()) }
+    var hasVoice by remember { mutableStateOf(ambient.hasCustomVoice()) }
+
+    val recordPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            if (ambient.startRecordingVoice()) {
+                isRecording = true
+                ToastHelper.show(context, "Recording caller voice… tap Stop when done.")
+            } else {
+                ToastHelper.show(context, "Could not start recording.")
+            }
+        } else {
+            ToastHelper.show(context, "Microphone permission is required to record a voice.")
+        }
+    }
+    val pickAudioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: Throwable) {
+            }
+            ambient.setCustomVoiceUri(uri)
+            hasVoice = true
+            ToastHelper.show(context, "Caller voice file selected.")
+        }
+    }
+
+    SettingsSubScreenScaffold(title = "Magic Call", onBack = { navController?.popBackStack() }) {
+        SectionTitle("Ambient sound")
+        Text(
+            "Background sound played during a fake call, so it feels like a real place.",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+        )
+        listOf(
+            AmbientSoundManager.PRESET_TRAFFIC to "Traffic",
+            AmbientSoundManager.PRESET_AIRPORT to "Airport",
+            AmbientSoundManager.PRESET_OFFICE to "Office",
+            AmbientSoundManager.PRESET_OFF to "Off"
+        ).forEach { (value, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        preset = value
+                        ambient.setPreset(value)
+                    }
+                    .padding(horizontal = 4.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                if (preset == value) {
+                    Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+
+        SectionTitle("Caller voice")
+        Text(
+            if (hasVoice) "A caller voice is set and will play during fake calls."
+            else "No caller voice yet. Record one or pick an audio file.",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+        )
+        SettingRow(
+            icon = if (isRecording) Icons.Rounded.Stop else Icons.Rounded.Mic,
+            title = if (isRecording) "Stop recording" else "Record caller voice",
+            subtitle = if (isRecording) "Recording… tap to stop and save" else "Record with the microphone"
+        ) {
+            if (isRecording) {
+                if (ambient.stopRecordingVoice()) {
+                    isRecording = false
+                    hasVoice = ambient.hasCustomVoice()
+                    ToastHelper.show(context, "Caller voice saved.")
+                } else {
+                    isRecording = false
+                    ToastHelper.show(context, "Recording was too short to save.")
+                }
+            } else {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    if (ambient.startRecordingVoice()) {
+                        isRecording = true
+                        ToastHelper.show(context, "Recording caller voice… tap Stop when done.")
+                    } else {
+                        ToastHelper.show(context, "Could not start recording.")
+                    }
+                } else {
+                    recordPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
+            }
+        }
+        SettingRow(
+            icon = Icons.Rounded.AudioFile,
+            title = "Pick an audio file",
+            subtitle = "Use any audio file as the caller voice"
+        ) {
+            pickAudioLauncher.launch("audio/*")
+        }
+        if (hasVoice) {
+            SettingRow(
+                icon = Icons.Rounded.Delete,
+                title = "Remove caller voice",
+                subtitle = "Fake calls will use ambient sound only"
+            ) {
+                ambient.deleteRecordedVoice()
+                hasVoice = false
+                ToastHelper.show(context, "Caller voice removed.")
+            }
+        }
+
+        SectionTitle("About Magic Call")
+        Text(
+            "Magic Call starts a simulated outgoing call with the duration you pick. " +
+                "It never uses the SIM or network. When it ends, a realistic entry is added to the call log. " +
+                "Call-log entries need SmartDialer set as the default phone app.",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp)
+        )
     }
 }
 

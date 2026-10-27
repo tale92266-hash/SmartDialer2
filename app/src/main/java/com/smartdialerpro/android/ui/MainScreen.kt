@@ -62,6 +62,7 @@ import com.smartdialerpro.android.ui.screens.settings.BlockedNumbersScreen
 import com.smartdialerpro.android.ui.screens.settings.RecordingsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsCallsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsGeneralScreen
+import com.smartdialerpro.android.ui.screens.settings.SettingsMagicCallScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsPrivacyScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsRecordingScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsScreen
@@ -264,6 +265,9 @@ fun MainScreen() {
                 }
                 composable(Screen.SettingsSystem.route) {
                     SettingsSystemScreen(navController)
+                }
+                composable(Screen.SettingsMagicCall.route) {
+                    SettingsMagicCallScreen(navController)
                 }
                 composable(
                     route = Screen.ContactEditor.route,

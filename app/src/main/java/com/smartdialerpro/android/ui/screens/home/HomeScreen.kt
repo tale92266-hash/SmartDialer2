@@ -80,9 +80,11 @@ import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.ui.components.EmptyStateView
+import com.smartdialerpro.android.ui.components.FakeCallSheet
 import com.smartdialerpro.android.ui.components.avatarColorsFor
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
+import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.theme.CallAnswerGreen
 import com.smartdialerpro.android.util.Utils
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
@@ -158,6 +160,7 @@ fun HomeScreen(
     val recentCalls by recentsViewModel.recentCalls.collectAsState()
     val sims by dialerViewModel.availableSims.collectAsState()
     var sheetNumber by remember { mutableStateOf<String?>(null) }
+    var magicSheetNumber by remember { mutableStateOf<String?>(null) }
     var pendingFavorite by remember { mutableStateOf<Contact?>(null) }
     val favoriteWriteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -581,9 +584,13 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                    Row(
+                        modifier = Modifier.width(96.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         IconButton(
                             onClick = { dialerOpen = false },
-                            modifier = Modifier.size(52.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 Icons.Rounded.KeyboardArrowDown,
@@ -592,6 +599,8 @@ fun HomeScreen(
                                 modifier = Modifier.size(28.dp)
                             )
                         }
+                        Spacer(Modifier.size(48.dp))
+                    }
 
                         FloatingActionButton(
                             onClick = {
@@ -611,20 +620,43 @@ fun HomeScreen(
                             Icon(Icons.Rounded.Call, "Call", modifier = Modifier.size(32.dp))
                         }
 
-                        if (dialedNumber.isNotBlank()) {
+                        Row(
+                            modifier = Modifier.width(96.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.End
+                        ) {
                             IconButton(
-                                onClick = { navController.navigate(Screen.ContactEditor.createRoute(null, dialedNumber)) },
-                                modifier = Modifier.size(52.dp)
+                                onClick = {
+                                    if (dialedNumber.isBlank()) {
+                                        Toast.makeText(context, "Please enter a valid number first.", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        magicSheetNumber = dialedNumber
+                                    }
+                                },
+                                modifier = Modifier.size(48.dp)
                             ) {
                                 Icon(
-                                    Icons.Rounded.PersonAdd,
-                                    contentDescription = "Add contact",
+                                    Icons.Rounded.AutoAwesome,
+                                    contentDescription = "Magic Call",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(26.dp)
                                 )
                             }
-                        } else {
-                            Spacer(Modifier.size(52.dp))
+                            if (dialedNumber.isNotBlank()) {
+                                IconButton(
+                                    onClick = { navController.navigate(Screen.ContactEditor.createRoute(null, dialedNumber)) },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Rounded.PersonAdd,
+                                        contentDescription = "Add contact",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
+                            } else {
+                                Spacer(Modifier.size(48.dp))
+                            }
                         }
                     }
                 }
@@ -665,6 +697,23 @@ fun HomeScreen(
                 onOpenProfile = {
                     sheetNumber = null
                     navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(number)))
+                },
+                onMagicCall = { magicSheetNumber = it }
+            )
+        }
+
+        magicSheetNumber?.let { magicNumber ->
+            FakeCallSheet(
+                number = magicNumber,
+                simSlot = selectedSimIndex,
+                onDismiss = { magicSheetNumber = null },
+                onGenuineCall = { genuineNumber ->
+                    placeRealCall(context, genuineNumber, selectedSim)
+                },
+                onDirectCall = { fakeNumber, durationSecs, slot ->
+                    dialerOpen = false
+                    dialedNumber = ""
+                    FakeCallActivity.start(context, fakeNumber, durationSecs, slot)
                 }
             )
         }
