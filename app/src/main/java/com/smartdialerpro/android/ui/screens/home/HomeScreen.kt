@@ -46,6 +46,9 @@ import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.automirrored.rounded.Message
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import com.smartdialerpro.android.ui.components.SimSlotIcon
+import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
+import com.smartdialerpro.android.ui.components.launchWhatsApp
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -107,7 +110,11 @@ fun HomeScreen(
     contactsViewModel: ContactsViewModel,
     recentsViewModel: RecentsViewModel,
     dialerViewModel: DialerViewModel,
-    startWithDialerOpen: Boolean = false
+    startWithDialerOpen: Boolean = false,
+    /** Increments when the user leaves this tab: the top search query clears (dialled digits stay). */
+    clearSearchSignal: Int = 0,
+    /** Increments when the user taps the already-selected tab: scroll back to the top. */
+    reselectSignal: Int = 0
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -132,6 +139,20 @@ fun HomeScreen(
     
     var topSearchQuery by rememberSaveable { mutableStateOf("") }
     var dialedNumber by rememberSaveable { mutableStateOf("") }
+    var pendingWhatsAppNumber by remember { mutableStateOf<String?>(null) }
+
+    // Leaving the Home tab closes the top search mode; dialled digits survive.
+    LaunchedEffect(clearSearchSignal) {
+        if (clearSearchSignal > 0) topSearchQuery = ""
+    }
+    // Tapping the already-selected tab scrolls the recents list to the top.
+    var lastReselectSignal by remember { mutableStateOf(reselectSignal) }
+    LaunchedEffect(reselectSignal) {
+        if (reselectSignal != lastReselectSignal) {
+            lastReselectSignal = reselectSignal
+            listState.animateScrollToItem(0)
+        }
+    }
 
     val contacts by contactsViewModel.contacts.collectAsState()
     val recentCalls by recentsViewModel.recentCalls.collectAsState()
@@ -278,6 +299,10 @@ fun HomeScreen(
         list
     }
 
+    pendingWhatsAppNumber?.let { number ->
+        WhatsAppChooserDialog(number = number, onDismiss = { pendingWhatsAppNumber = null })
+    }
+
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(Modifier.fillMaxSize()) {
             HomeLiveSearchBar(
@@ -376,7 +401,7 @@ fun HomeScreen(
                                             onToggle = { expandedCallId = if (expandedCallId == item.call.id) null else item.call.id },
                                             onCall = { Utils.makeCall(context, item.call.number) },
                                             onMessage = { openSms(context, item.call.number) },
-                                            onWhatsApp = { openWhatsApp(context, item.call.number) },
+                                            onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
                                             onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
                                             onLongPress = { sheetNumber = item.call.number }
@@ -439,7 +464,7 @@ fun HomeScreen(
                                             onToggle = { expandedCallId = if (expandedCallId == item.call.id) null else item.call.id },
                                             onCall = { Utils.makeCall(context, item.call.number) },
                                             onMessage = { openSms(context, item.call.number) },
-                                            onWhatsApp = { openWhatsApp(context, item.call.number) },
+                                            onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
                                             onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
                                             onLongPress = { sheetNumber = item.call.number }
@@ -850,7 +875,9 @@ private fun HomeCallItemRow(
     val isUnknown = call.name.isNullOrBlank()
 
     val backgroundColor by animateColorAsState(
-        if (expanded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f) else Color.Transparent,
+        if (expanded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+        else if (isMissed) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.14f)
+        else Color.Transparent,
         label = "item_bg"
     )
 
@@ -896,10 +923,21 @@ private fun HomeCallItemRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(directionIcon, null, tint = iconTint, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(5.dp))
+                    if (isMissed) {
+                        Text(
+                            text = "Missed",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        Spacer(Modifier.width(5.dp))
+                    }
                     Text(
                         text = call.number,
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         softWrap = false,
@@ -916,20 +954,7 @@ private fun HomeCallItemRow(
                     }
                     call.simSlot?.let { slot ->
                         Spacer(Modifier.width(6.dp))
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Text(
-                                text = "SIM $slot",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                        SimSlotIcon(slot = slot, size = 20.dp)
                     }
                 }
             }
@@ -1189,12 +1214,20 @@ private fun HomeSimSelector(sims: List<SimInfo>, selectedIndex: Int, onSelect: (
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.SimCard,
-                            contentDescription = null,
-                            tint = contentColorAnimated,
-                            modifier = Modifier.size(15.dp)
-                        )
+                        if (sim.slotIndex >= 0) {
+                            SimSlotIcon(
+                                slot = sim.slotIndex + 1,
+                                size = 18.dp,
+                                color = contentColorAnimated
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.SimCard,
+                                contentDescription = null,
+                                tint = contentColorAnimated,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
                         Spacer(Modifier.width(6.dp))
                         Text(
                             text = simLabel,
@@ -1283,17 +1316,3 @@ private fun openSms(context: Context, number: String) {
     } catch (_: Throwable) { }
 }
 
-private fun openWhatsApp(context: Context, number: String) {
-    val clean = number.filter { it.isDigit() || it == '+' }
-    if (clean.isBlank()) return
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse("https://api.whatsapp.com/send?phone=$clean")
-            setPackage("com.whatsapp")
-        })
-    } catch (_: Throwable) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$clean")))
-        } catch (_: Throwable) { }
-    }
-}

@@ -23,6 +23,11 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object UniversalSearch : Screen("universal_search", "Search", Icons.Rounded.Search)
     object BlockedNumbers : Screen("blocked_numbers", "Blocked Numbers", Icons.Rounded.Block)
     object Recordings : Screen("recordings", "Recordings", Icons.Rounded.FiberManualRecord)
+    object SettingsGeneral : Screen("settings_general", "General", Icons.Rounded.Settings)
+    object SettingsCalls : Screen("settings_calls", "Calls & SIM", Icons.Rounded.SimCard)
+    object SettingsRecording : Screen("settings_recording", "Recording", Icons.Rounded.FiberManualRecord)
+    object SettingsPrivacy : Screen("settings_privacy", "Privacy & Blocked", Icons.Rounded.Security)
+    object SettingsSystem : Screen("settings_system", "System & About", Icons.Rounded.Info)
     object ContactProfile : Screen("contact_profile/{number}", "Profile", Icons.Rounded.Person) {
         fun createRoute(number: String) = "contact_profile/$number"
     }

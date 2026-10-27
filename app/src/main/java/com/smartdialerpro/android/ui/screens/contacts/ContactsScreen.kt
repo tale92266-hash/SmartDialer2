@@ -43,7 +43,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
 import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.ui.components.EmptyStateView
+import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
 import com.smartdialerpro.android.ui.components.avatarColorsFor
+import com.smartdialerpro.android.ui.components.launchWhatsApp
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.util.Utils
@@ -56,12 +58,28 @@ sealed interface ContactListItem {
 }
 
 @Composable
-fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
+fun ContactsScreen(
+    viewModel: ContactsViewModel,
+    navController: NavController,
+    /** Increments when the user taps the already-selected tab: scroll back to the top. */
+    reselectSignal: Int = 0
+) {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(hasReadContacts(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val listState = rememberLazyListState()
+    var lastReselectSignal by remember { mutableStateOf(reselectSignal) }
+    LaunchedEffect(reselectSignal) {
+        if (reselectSignal != lastReselectSignal) {
+            lastReselectSignal = reselectSignal
+            listState.animateScrollToItem(0)
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
+    var pendingWhatsAppNumber by remember { mutableStateOf<String?>(null) }
+    pendingWhatsAppNumber?.let { number ->
+        WhatsAppChooserDialog(number = number, onDismiss = { pendingWhatsAppNumber = null })
+    }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasPermission = granted
@@ -229,7 +247,7 @@ fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
                                         contact = item.contact,
                                         onRowClick = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.contact.number))) },
                                         onCall = { Utils.makeCall(context, item.contact.number) },
-                                        onWhatsApp = { openWhatsApp(context, item.contact.number) },
+                                        onWhatsApp = { launchWhatsApp(context, item.contact.number) { pendingWhatsAppNumber = it } },
                                         onFavorite = {
                                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
                                                 viewModel.toggleFavorite(item.contact)
@@ -547,17 +565,3 @@ fun ContactAvatar(name: String, photoUri: String?, size: androidx.compose.ui.uni
     }
 }
 
-private fun openWhatsApp(context: Context, number: String) {
-    val clean = number.filter { it.isDigit() || it == '+' }
-    if (clean.isBlank()) return
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW).apply {
-            data = Uri.parse("https://api.whatsapp.com/send?phone=$clean")
-            setPackage("com.whatsapp")
-        })
-    } catch (_: Throwable) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$clean")))
-        } catch (_: Throwable) {}
-    }
-}

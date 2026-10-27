@@ -55,6 +55,9 @@ import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.repository.ContactsRepository
+import com.smartdialerpro.android.ui.components.SimSlotIcon
+import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
+import com.smartdialerpro.android.ui.components.launchWhatsApp
 import com.smartdialerpro.android.ui.screens.contacts.ContactAvatar
 import com.smartdialerpro.android.util.Utils
 import kotlinx.coroutines.Dispatchers
@@ -100,6 +103,10 @@ fun ContactProfileScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableStateOf(0) }
+    var pendingWhatsAppNumber by remember { mutableStateOf<String?>(null) }
+    pendingWhatsAppNumber?.let { pendingNumber ->
+        WhatsAppChooserDialog(number = pendingNumber, onDismiss = { pendingWhatsAppNumber = null })
+    }
 
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -430,12 +437,20 @@ fun ContactProfileScreen(
                                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.SimCard,
-                                                contentDescription = null,
-                                                tint = contentColorAnimated,
-                                                modifier = Modifier.size(14.dp)
-                                            )
+                                            if (sim.slotIndex >= 0) {
+                                                SimSlotIcon(
+                                                    slot = sim.slotIndex + 1,
+                                                    size = 17.dp,
+                                                    color = contentColorAnimated
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.SimCard,
+                                                    contentDescription = null,
+                                                    tint = contentColorAnimated,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
                                             Spacer(Modifier.width(6.dp))
                                             Text(
                                                 text = simLabel,
@@ -470,7 +485,7 @@ fun ContactProfileScreen(
                         }
                     }
                     ProfileAction(Icons.AutoMirrored.Rounded.Message, "Message", Modifier.weight(1f)) { openSms(context, number) }
-                    ProfileAction(ImageVector.vectorResource(R.drawable.ic_whatsapp), "WhatsApp", Modifier.weight(1f), Color(0xFF25D366)) { openWhatsApp(context, number) }
+                    ProfileAction(ImageVector.vectorResource(R.drawable.ic_whatsapp), "WhatsApp", Modifier.weight(1f), Color(0xFF25D366)) { launchWhatsApp(context, number) { pendingWhatsAppNumber = it } }
                 }
             }
 
@@ -622,7 +637,10 @@ private fun ProfileCallHistoryRow(call: RecentCall) {
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) { Text(title, fontWeight = FontWeight.SemiBold); Text(date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Column(horizontalAlignment = Alignment.End) {
                 Text(if (call.duration > 0) formatDuration(call.duration) else "—", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                call.simSlot?.let { Text("SIM $it", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
+                call.simSlot?.let {
+                    Spacer(Modifier.height(3.dp))
+                    SimSlotIcon(slot = it, size = 18.dp)
+                }
             }
         }
     }
@@ -769,17 +787,6 @@ private fun openSms(context: Context, number: String) {
     if (clean.isBlank()) return
     try { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$clean"))) }
     catch (_: Throwable) { }
-}
-
-private fun openWhatsApp(context: Context, number: String) {
-    val clean = number.filter { it.isDigit() || it == '+' }
-    if (clean.isBlank()) return
-    try {
-        context.startActivity(Intent(Intent.ACTION_VIEW).apply { data = Uri.parse("https://api.whatsapp.com/send?phone=$clean"); setPackage("com.whatsapp") })
-    } catch (_: Throwable) {
-        try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$clean"))) }
-        catch (_: Throwable) { }
-    }
 }
 
 private fun createNewContact(context: Context, number: String) {

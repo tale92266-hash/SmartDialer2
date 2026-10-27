@@ -8,6 +8,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,7 +37,12 @@ private const val SPEED_DIAL_PREFS = "speed_dial_preferences"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun FavoritesSpeedDialScreen(viewModel: ContactsViewModel, navController: NavController) {
+fun FavoritesSpeedDialScreen(
+    viewModel: ContactsViewModel,
+    navController: NavController,
+    /** Increments when the user taps the already-selected tab: scroll back to the top. */
+    reselectSignal: Int = 0
+) {
     val context = LocalContext.current
     val contacts by viewModel.contacts.collectAsState()
     val favorites = remember(contacts) { contacts.filter { it.isFavorite }.sortedBy { it.name.lowercase() } }
@@ -44,6 +50,14 @@ fun FavoritesSpeedDialScreen(viewModel: ContactsViewModel, navController: NavCon
     var refreshKey by remember { mutableIntStateOf(0) }
     var assigningSlot by remember { mutableStateOf<Int?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val listState = rememberLazyListState()
+    var lastReselectSignal by remember { mutableStateOf(reselectSignal) }
+    LaunchedEffect(reselectSignal) {
+        if (reselectSignal != lastReselectSignal) {
+            lastReselectSignal = reselectSignal
+            listState.animateScrollToItem(0)
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.loadContacts(force = false) }
     DisposableEffect(lifecycleOwner) {
@@ -62,6 +76,7 @@ fun FavoritesSpeedDialScreen(viewModel: ContactsViewModel, navController: NavCon
     fun call(contact: Contact) { Utils.makeCall(context, contact.number) }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background),

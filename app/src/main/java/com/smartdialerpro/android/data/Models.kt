@@ -17,7 +17,9 @@ data class ContactDetails(
     val contactId: String,
     val name: String,
     val phones: List<String>,
-    val emails: List<String>
+    val emails: List<String>,
+    val phoneTypes: List<Int> = emptyList(),
+    val photoBytes: ByteArray? = null
 )
 
 @Immutable

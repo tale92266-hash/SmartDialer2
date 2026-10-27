@@ -59,7 +59,12 @@ import com.smartdialerpro.android.ui.screens.profile.ContactProfileScreen
 import com.smartdialerpro.android.ui.screens.search.UniversalSearchScreen
 import com.smartdialerpro.android.ui.screens.settings.BlockedNumbersScreen
 import com.smartdialerpro.android.ui.screens.settings.RecordingsScreen
+import com.smartdialerpro.android.ui.screens.settings.SettingsCallsScreen
+import com.smartdialerpro.android.ui.screens.settings.SettingsGeneralScreen
+import com.smartdialerpro.android.ui.screens.settings.SettingsPrivacyScreen
+import com.smartdialerpro.android.ui.screens.settings.SettingsRecordingScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsScreen
+import com.smartdialerpro.android.ui.screens.settings.SettingsSystemScreen
 import com.smartdialerpro.android.viewmodel.AppViewModelFactory
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
 import com.smartdialerpro.android.viewmodel.DialerViewModel
@@ -79,6 +84,11 @@ fun MainScreen() {
 
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route
+
+    // Tab signals: reselecting the current tab scrolls it to the top, and
+    // leaving the Home tab closes the top search mode (dialled digits stay).
+    var reselectSignal by remember { mutableStateOf(0) }
+    var leaveHomeSignal by remember { mutableStateOf(0) }
 
     // Automatically sync active tab route into preferences
     LaunchedEffect(currentRoute) {
@@ -138,10 +148,17 @@ fun MainScreen() {
         containerColor = MaterialTheme.colorScheme.background,
         bottomBar = {
             PremiumBottomBar(items = items, navController = navController) { screen ->
-                navController.navigate(screen.route) {
-                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
+                if (screen.route == currentRoute) {
+                    reselectSignal++
+                } else {
+                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Dialer.route) {
+                        leaveHomeSignal++
+                    }
+                    navController.navigate(screen.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             }
         }
@@ -182,22 +199,24 @@ fun MainScreen() {
                 navController = navController,
                 startDestination = Screen.Home.route,
                 modifier = Modifier.weight(1f),
-                enterTransition = { EnterTransition.None },
-                exitTransition = { ExitTransition.None },
-                popEnterTransition = { EnterTransition.None },
-                popExitTransition = { ExitTransition.None }
+                // Fast swipe language for every destination: forward slides in
+                // from the right, back slides back from the left, always quick.
+                enterTransition = { fadeIn(tween(160)) + slideInHorizontally(tween(220)) { it / 5 } },
+                exitTransition = { fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { it / 5 } },
+                popEnterTransition = { fadeIn(tween(160)) + slideInHorizontally(tween(220)) { -it / 5 } },
+                popExitTransition = { fadeOut(tween(140)) + slideOutHorizontally(tween(200)) { it / 5 } }
             ) {
                 composable(Screen.Home.route) {
-                    HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = false)
+                    HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = false, clearSearchSignal = leaveHomeSignal, reselectSignal = reselectSignal)
                 }
                 composable(Screen.Dialer.route) {
-                    HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = true)
+                    HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = true, clearSearchSignal = leaveHomeSignal, reselectSignal = reselectSignal)
                 }
                 composable(Screen.Favorites.route) {
-                    FavoritesSpeedDialScreen(contactsViewModel, navController)
+                    FavoritesSpeedDialScreen(contactsViewModel, navController, reselectSignal = reselectSignal)
                 }
                 composable(Screen.Contacts.route) {
-                    ContactsScreen(contactsViewModel, navController)
+                    ContactsScreen(contactsViewModel, navController, reselectSignal = reselectSignal)
                 }
                 composable(Screen.Settings.route) {
                     SettingsScreen(navController)
@@ -207,6 +226,21 @@ fun MainScreen() {
                 }
                 composable(Screen.Recordings.route) {
                     RecordingsScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.SettingsGeneral.route) {
+                    SettingsGeneralScreen(navController)
+                }
+                composable(Screen.SettingsCalls.route) {
+                    SettingsCallsScreen(navController)
+                }
+                composable(Screen.SettingsRecording.route) {
+                    SettingsRecordingScreen(navController)
+                }
+                composable(Screen.SettingsPrivacy.route) {
+                    SettingsPrivacyScreen(navController)
+                }
+                composable(Screen.SettingsSystem.route) {
+                    SettingsSystemScreen(navController)
                 }
                 composable(
                     route = Screen.ContactEditor.route,

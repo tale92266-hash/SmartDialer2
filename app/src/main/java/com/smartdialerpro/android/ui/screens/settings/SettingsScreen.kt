@@ -25,18 +25,10 @@ private const val PREFS = "app_prefs"
 private const val DIALER_PREFS = "dialer_preferences"
 private const val KEY_ACCOUNT_ID = "selected_phone_account_id"
 
+/** Settings home: professional group cards, each opening its own sub-screen. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(navController: NavController? = null) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
-    var vibrate by remember { mutableStateOf(prefs.getBoolean("dialer_haptic", true)) }
-    var dtmfTone by remember { mutableStateOf(prefs.getBoolean("dialer_tones", true)) }
-    var confirmCall by remember { mutableStateOf(prefs.getBoolean("confirm_call", false)) }
-    var autoRecord by remember { mutableStateOf(prefs.getBoolean("auto_record_calls", false)) }
-    var showOnlyContacts by remember { mutableStateOf(prefs.getBoolean("show_only_contacts", false)) }
-    val dialerPrefs = remember { context.getSharedPreferences(DIALER_PREFS, Context.MODE_PRIVATE) }
-    val selectedAccountId by remember { mutableStateOf(dialerPrefs.getString(KEY_ACCOUNT_ID, null)) }
-
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
@@ -50,167 +42,294 @@ fun SettingsScreen(navController: NavController? = null) {
                 modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
             )
         }
-
-        item { SectionTitle("Calling & SIM") }
         item {
-            SettingRow(
+            SettingsGroupCard(
+                icon = Icons.Rounded.Settings,
+                title = "General",
+                summary = "Dialpad feedback, tones & suggestions"
+            ) { navController?.navigate(Screen.SettingsGeneral.route) }
+        }
+        item {
+            SettingsGroupCard(
                 icon = Icons.Rounded.SimCard,
-                title = "SIM selection",
-                subtitle = if (selectedAccountId.isNullOrBlank()) "System default • choose per call" else "Configured in dialer"
-            ) {
-                ToastHelper.show(context, "You can select your preferred SIM directly in the Dialer or Contact Profile.")
-            }
+                title = "Calls & SIM",
+                summary = "SIM selection & call confirmation"
+            ) { navController?.navigate(Screen.SettingsCalls.route) }
         }
         item {
-            SettingSwitchRow(
-                icon = Icons.Rounded.Call,
-                title = "Confirm before calling",
-                subtitle = "Ask for confirmation before placing an outgoing call",
-                checked = confirmCall
-            ) {
-                confirmCall = it
-                prefs.edit().putBoolean("confirm_call", it).apply()
-            }
-        }
-        item {
-            SettingSwitchRow(
+            SettingsGroupCard(
                 icon = Icons.Rounded.FiberManualRecord,
-                title = "Auto-record active calls",
-                subtitle = "Automatically trigger recording on answered phone calls",
-                checked = autoRecord
-            ) {
-                autoRecord = it
-                prefs.edit().putBoolean("auto_record_calls", it).apply()
-                if (it) ToastHelper.show(context, "Recording will start when active calls connect.")
-            }
-        }
-
-        item { SectionTitle("Dialpad & Feedback") }
-        item {
-            SettingSwitchRow(
-                icon = Icons.Rounded.Vibration,
-                title = "Haptic feedback",
-                subtitle = "Vibrate lightly on dialpad presses and deletions",
-                checked = vibrate
-            ) {
-                vibrate = it
-                prefs.edit().putBoolean("dialer_haptic", it).apply()
-            }
+                title = "Recording",
+                summary = "Auto-record & saved recordings"
+            ) { navController?.navigate(Screen.SettingsRecording.route) }
         }
         item {
-            SettingSwitchRow(
-                icon = Icons.Rounded.VolumeUp,
-                title = "Dialpad audio tones",
-                subtitle = "Play DTMF sound tones when dialing digits",
-                checked = dtmfTone
-            ) {
-                dtmfTone = it
-                prefs.edit().putBoolean("dialer_tones", it).apply()
-            }
-        }
-        item {
-            SettingSwitchRow(
-                icon = Icons.Rounded.Contacts,
-                title = "Contacts only in suggestions",
-                subtitle = "Hide unknown numbers from dialpad smart matches",
-                checked = showOnlyContacts
-            ) {
-                showOnlyContacts = it
-                prefs.edit().putBoolean("show_only_contacts", it).apply()
-            }
-        }
-
-        item { SectionTitle("Blocked Numbers & Privacy") }
-        item {
-            SettingRow(
-                icon = Icons.Rounded.Block,
-                title = "Blocked numbers",
-                subtitle = "Manage system-wide blocked callers and spam rejection"
-            ) {
-                if (navController != null) {
-                    navController.navigate(Screen.BlockedNumbers.route)
-                } else {
-                    ToastHelper.show(context, "Navigation controller unavailable")
-                }
-            }
-        }
-
-        item { SectionTitle("Recordings") }
-        item {
-            SettingRow(
-                icon = Icons.Rounded.FiberManualRecord,
-                title = "Call recordings",
-                subtitle = "Play, share, or delete your recorded calls"
-            ) {
-                if (navController != null) {
-                    navController.navigate(Screen.Recordings.route)
-                } else {
-                    ToastHelper.show(context, "Navigation controller unavailable")
-                }
-            }
-        }
-
-        item { SectionTitle("System & Application") }
-        item {
-            val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
-            val isDefault = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
-            SettingRow(
-                icon = Icons.Rounded.Phone,
-                title = "Default phone app",
-                subtitle = if (isDefault) "SmartDialer is active default dialer" else "Set SmartDialer as system default"
-            ) {
-                try {
-                    if (roleManager?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
-                        context.startActivity(roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } else ToastHelper.show(context, "Default dialer role is unavailable on this device.")
-                } catch (_: Throwable) {
-                    ToastHelper.show(context, "Unable to launch default phone app settings.")
-                }
-            }
-        }
-        item {
-            SettingRow(
-                icon = Icons.Rounded.Notifications,
-                title = "Call notifications",
-                subtitle = "Configure ongoing, incoming, and heads-up banner alerts"
-            ) {
-                try {
-                    context.startActivity(
-                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                } catch (_: Throwable) {
-                    ToastHelper.show(context, "Unable to open notification settings.")
-                }
-            }
-        }
-        item {
-            SettingRow(
+            SettingsGroupCard(
                 icon = Icons.Rounded.Security,
-                title = "App permissions",
-                subtitle = "Manage Phone, Microphone, and Contacts permissions"
+                title = "Privacy & Blocked",
+                summary = "Blocked numbers & app permissions"
+            ) { navController?.navigate(Screen.SettingsPrivacy.route) }
+        }
+        item {
+            SettingsGroupCard(
+                icon = Icons.Rounded.Info,
+                title = "System & About",
+                summary = "Default dialer, notifications & version"
+            ) { navController?.navigate(Screen.SettingsSystem.route) }
+        }
+        item { Spacer(Modifier.height(40.dp)) }
+    }
+}
+
+@Composable
+private fun SettingsGroupCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    summary: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
-                try {
-                    context.startActivity(
-                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                } catch (_: Throwable) {
-                    ToastHelper.show(context, "Unable to open app settings.")
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier
+                        .padding(10.dp)
+                        .size(24.dp)
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp)
+            ) {
+                Text(title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(
+                    summary,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsSubScreenScaffold(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(title, fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
+                    }
                 }
+            )
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+fun SettingsGeneralScreen(navController: NavController? = null) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    var vibrate by remember { mutableStateOf(prefs.getBoolean("dialer_haptic", true)) }
+    var dtmfTone by remember { mutableStateOf(prefs.getBoolean("dialer_tones", true)) }
+    var showOnlyContacts by remember { mutableStateOf(prefs.getBoolean("show_only_contacts", false)) }
+    SettingsSubScreenScaffold(title = "General", onBack = { navController?.popBackStack() }) {
+        SettingSwitchRow(
+            icon = Icons.Rounded.Vibration,
+            title = "Haptic feedback",
+            subtitle = "Vibrate lightly on dialpad presses and deletions",
+            checked = vibrate
+        ) {
+            vibrate = it
+            prefs.edit().putBoolean("dialer_haptic", it).apply()
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.VolumeUp,
+            title = "Dialpad audio tones",
+            subtitle = "Play DTMF sound tones when dialing digits",
+            checked = dtmfTone
+        ) {
+            dtmfTone = it
+            prefs.edit().putBoolean("dialer_tones", it).apply()
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Contacts,
+            title = "Contacts only in suggestions",
+            subtitle = "Hide unknown numbers from dialpad smart matches",
+            checked = showOnlyContacts
+        ) {
+            showOnlyContacts = it
+            prefs.edit().putBoolean("show_only_contacts", it).apply()
+        }
+    }
+}
+
+@Composable
+fun SettingsCallsScreen(navController: NavController? = null) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    var confirmCall by remember { mutableStateOf(prefs.getBoolean("confirm_call", false)) }
+    val dialerPrefs = remember { context.getSharedPreferences(DIALER_PREFS, Context.MODE_PRIVATE) }
+    val selectedAccountId by remember { mutableStateOf(dialerPrefs.getString(KEY_ACCOUNT_ID, null)) }
+    SettingsSubScreenScaffold(title = "Calls & SIM", onBack = { navController?.popBackStack() }) {
+        SettingRow(
+            icon = Icons.Rounded.SimCard,
+            title = "SIM selection",
+            subtitle = if (selectedAccountId.isNullOrBlank()) "System default • choose per call" else "Configured in dialer"
+        ) {
+            ToastHelper.show(context, "You can select your preferred SIM directly in the Dialer or Contact Profile.")
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Call,
+            title = "Confirm before calling",
+            subtitle = "Ask for confirmation before placing an outgoing call",
+            checked = confirmCall
+        ) {
+            confirmCall = it
+            prefs.edit().putBoolean("confirm_call", it).apply()
+        }
+    }
+}
+
+@Composable
+fun SettingsRecordingScreen(navController: NavController? = null) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    var autoRecord by remember { mutableStateOf(prefs.getBoolean("auto_record_calls", false)) }
+    SettingsSubScreenScaffold(title = "Recording", onBack = { navController?.popBackStack() }) {
+        SettingSwitchRow(
+            icon = Icons.Rounded.FiberManualRecord,
+            title = "Auto-record active calls",
+            subtitle = "Automatically trigger recording on answered phone calls",
+            checked = autoRecord
+        ) {
+            autoRecord = it
+            prefs.edit().putBoolean("auto_record_calls", it).apply()
+            if (it) ToastHelper.show(context, "Recording will start when active calls connect.")
+        }
+        SettingRow(
+            icon = Icons.Rounded.FiberManualRecord,
+            title = "Call recordings",
+            subtitle = "Play, share, or delete your recorded calls"
+        ) {
+            if (navController != null) {
+                navController.navigate(Screen.Recordings.route)
+            } else {
+                ToastHelper.show(context, "Navigation controller unavailable")
             }
         }
-        item {
-            SettingRow(
-                icon = Icons.Rounded.Info,
-                title = "About SmartDialer",
-                subtitle = "Version 1.0"
-            ) {}
+    }
+}
+
+@Composable
+fun SettingsPrivacyScreen(navController: NavController? = null) {
+    val context = LocalContext.current
+    SettingsSubScreenScaffold(title = "Privacy & Blocked", onBack = { navController?.popBackStack() }) {
+        SettingRow(
+            icon = Icons.Rounded.Block,
+            title = "Blocked numbers",
+            subtitle = "Manage system-wide blocked callers and spam rejection"
+        ) {
+            if (navController != null) {
+                navController.navigate(Screen.BlockedNumbers.route)
+            } else {
+                ToastHelper.show(context, "Navigation controller unavailable")
+            }
         }
-        item {
-            Spacer(Modifier.height(40.dp))
+        SettingRow(
+            icon = Icons.Rounded.Security,
+            title = "App permissions",
+            subtitle = "Manage Phone, Microphone, and Contacts permissions"
+        ) {
+            try {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Unable to open app settings.")
+            }
         }
+    }
+}
+
+@Composable
+fun SettingsSystemScreen(navController: NavController? = null) {
+    val context = LocalContext.current
+    SettingsSubScreenScaffold(title = "System & About", onBack = { navController?.popBackStack() }) {
+        val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
+        val isDefault = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
+        SettingRow(
+            icon = Icons.Rounded.Phone,
+            title = "Default phone app",
+            subtitle = if (isDefault) "SmartDialer is active default dialer" else "Set SmartDialer as system default"
+        ) {
+            try {
+                if (roleManager?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
+                    context.startActivity(roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                } else ToastHelper.show(context, "Default dialer role is unavailable on this device.")
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Unable to launch default phone app settings.")
+            }
+        }
+        SettingRow(
+            icon = Icons.Rounded.Notifications,
+            title = "Call notifications",
+            subtitle = "Configure ongoing, incoming, and heads-up banner alerts"
+        ) {
+            try {
+                context.startActivity(
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Unable to open notification settings.")
+            }
+        }
+        SettingRow(
+            icon = Icons.Rounded.Info,
+            title = "About SmartDialer",
+            subtitle = "Version 1.0"
+        ) {}
     }
 }
 

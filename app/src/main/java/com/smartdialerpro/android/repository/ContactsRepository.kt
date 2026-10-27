@@ -16,7 +16,52 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+/** Where a new contact can be saved: on-device storage or one of the accounts that already holds contacts. */
+data class SaveTarget(
+    val title: String,
+    val subtitle: String,
+    val accountName: String?,
+    val accountType: String?
+)
+
 class ContactsRepository(private val context: Context) {
+
+    /** Accounts that already hold contacts (e.g. Google), plus on-device storage first. */
+    suspend fun loadSaveTargets(): List<SaveTarget> = withContext(Dispatchers.IO) {
+        val found = linkedMapOf<String, SaveTarget>()
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+            try {
+                context.contentResolver.query(
+                    ContactsContract.RawContacts.CONTENT_URI,
+                    arrayOf(ContactsContract.RawContacts.ACCOUNT_NAME, ContactsContract.RawContacts.ACCOUNT_TYPE),
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    val nameIdx = cursor.getColumnIndex(ContactsContract.RawContacts.ACCOUNT_NAME)
+                    val typeIdx = cursor.getColumnIndex(ContactsContract.RawContacts.ACCOUNT_TYPE)
+                    while (cursor.moveToNext()) {
+                        val accName = if (nameIdx >= 0) cursor.getString(nameIdx) else null
+                        val accType = if (typeIdx >= 0) cursor.getString(typeIdx) else null
+                        if (accName.isNullOrBlank() || accType.isNullOrBlank()) continue
+                        val key = "$accName|$accType"
+                        if (!found.containsKey(key)) {
+                            val title = when {
+                                accType == "com.google" -> "Google account"
+                                accType.contains("sim", true) -> "SIM card"
+                                else -> accType.substringAfterLast('.').replaceFirstChar { it.uppercase() } + " account"
+                            }
+                            found[key] = SaveTarget(title, accName, accName, accType)
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Unable to list contact accounts", t)
+            }
+        }
+        val device = SaveTarget("Phone", "Only on this device", null, null)
+        listOf(device) + found.values.sortedBy { it.title }
+    }
     companion object {
         private const val TAG = "ContactsRepository"
         private const val CACHE_FILE = "contacts_disk_cache.json"
@@ -151,7 +196,15 @@ class ContactsRepository(private val context: Context) {
     }
 
     /** Creates a new contact in the system contacts provider. Returns false when the write fails. */
-    suspend fun createContact(name: String, phones: List<String>, emails: List<String>): Boolean = withContext(Dispatchers.IO) {
+    suspend fun createContact(
+        name: String,
+        phones: List<String>,
+        emails: List<String>,
+        accountName: String? = null,
+        accountType: String? = null,
+        phoneTypes: List<Int>? = null,
+        photoBytes: ByteArray? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         if (name.isBlank() || phones.none { it.isNotBlank() }) return@withContext false
         if (!hasWriteContactsPermission()) {
             Log.w(TAG, "WRITE_CONTACTS is not granted; contact creation rejected")
@@ -161,8 +214,8 @@ class ContactsRepository(private val context: Context) {
             val ops = ArrayList<ContentProviderOperation>()
             ops.add(
                 ContentProviderOperation.newInsert(ContactsContract.RawContacts.CONTENT_URI)
-                    .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, null)
-                    .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, null)
+                    .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, accountName)
+                    .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, accountType)
                     .build()
             )
             ops.add(
@@ -172,14 +225,26 @@ class ContactsRepository(private val context: Context) {
                     .withValue(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name.trim())
                     .build()
             )
-            for (phone in phones) {
+            if (photoBytes != null) {
+                ops.add(
+                    ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                        .withValue(ContactsContract.CommonDataKinds.Photo.PHOTO, photoBytes)
+                        .build()
+                )
+            }
+            for ((index, phone) in phones.withIndex()) {
                 if (phone.isBlank()) continue
                 ops.add(
                     ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
                         .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
                         .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
                         .withValue(ContactsContract.CommonDataKinds.Phone.NUMBER, phone.trim())
-                        .withValue(ContactsContract.CommonDataKinds.Phone.TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+                        .withValue(
+                            ContactsContract.CommonDataKinds.Phone.TYPE,
+                            phoneTypes?.getOrNull(index) ?: ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE
+                        )
                         .build()
                 )
             }
@@ -225,19 +290,64 @@ class ContactsRepository(private val context: Context) {
                 ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
                 ContactsContract.CommonDataKinds.Phone.NUMBER
             )
+            val phoneTypes = queryContactDataInts(
+                contactId,
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                ContactsContract.CommonDataKinds.Phone.TYPE
+            )
             val emails = queryContactDataValues(
                 contactId,
                 ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
                 ContactsContract.CommonDataKinds.Email.ADDRESS
             )
-            ContactDetails(contactId = contactId, name = name, phones = phones, emails = emails)
+            val photoBytes = queryContactPhoto(contactId)
+            ContactDetails(contactId = contactId, name = name, phones = phones, emails = emails, phoneTypes = phoneTypes, photoBytes = photoBytes)
         } catch (t: Throwable) {
             Log.e(TAG, "Unable to read contact details for $contactId", t)
             null
         }
     }
 
-    private fun queryContactDataValues(contactId: String, mimeType: String, column: String): List<String> {
+    private fun queryContactDataInts(contactId: String, mimeType: String, column: String): List<Int> {
+        val values = ArrayList<Int>()
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(column),
+            "${ContactsContract.Data.CONTACT_ID}=? AND ${ContactsContract.Data.MIMETYPE}=?",
+            arrayOf(contactId, mimeType),
+            "${ContactsContract.Data._ID} ASC"
+        )?.use { cursor ->
+            val idx = cursor.getColumnIndex(column)
+            if (idx < 0) return values
+            while (cursor.moveToNext()) {
+                values.add(cursor.getInt(idx))
+            }
+        }
+        return values
+    }
+
+    private fun queryContactPhoto(contactId: String): ByteArray? {
+        var photo: ByteArray? = null
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(ContactsContract.CommonDataKinds.Photo.PHOTO),
+            "${ContactsContract.Data.CONTACT_ID}=? AND ${ContactsContract.Data.MIMETYPE}=?",
+            arrayOf(contactId, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE),
+            "${ContactsContract.Data._ID} ASC"
+        )?.use { cursor ->
+            val idx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Photo.PHOTO)
+            if (idx >= 0) {
+                while (cursor.moveToNext()) {
+                    val blob = cursor.getBlob(idx)
+                    if (blob != null && blob.isNotEmpty()) {
+                        photo = blob
+                        break
+                    }
+                }
+            }
+        }
+        return photo
+    }
         val values = ArrayList<String>()
         context.contentResolver.query(
             ContactsContract.Data.CONTENT_URI,
@@ -257,7 +367,14 @@ class ContactsRepository(private val context: Context) {
     }
 
     /** Updates name, phones and emails in place. Rows beyond the supplied lists are removed. */
-    suspend fun updateContact(contactId: String, name: String, phones: List<String>, emails: List<String>): Boolean = withContext(Dispatchers.IO) {
+    suspend fun updateContact(
+        contactId: String,
+        name: String,
+        phones: List<String>,
+        emails: List<String>,
+        phoneTypes: List<Int>? = null,
+        photoBytes: ByteArray? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         if (contactId.isBlank() || name.isBlank() || phones.none { it.isNotBlank() }) return@withContext false
         if (!hasWriteContactsPermission()) {
             Log.w(TAG, "WRITE_CONTACTS is not granted; contact update rejected")
@@ -305,6 +422,7 @@ class ContactsRepository(private val context: Context) {
                 valueColumn = ContactsContract.CommonDataKinds.Phone.NUMBER,
                 typeColumn = ContactsContract.CommonDataKinds.Phone.TYPE,
                 typeValue = ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE,
+                typeValues = phoneTypes,
                 values = cleanPhones
             )
             val cleanEmails = emails.map { it.trim() }.filter { it.isNotBlank() }
@@ -317,6 +435,19 @@ class ContactsRepository(private val context: Context) {
                 typeValue = ContactsContract.CommonDataKinds.Email.TYPE_HOME,
                 values = cleanEmails
             )
+            if (photoBytes != null) {
+                context.contentResolver.delete(
+                    ContactsContract.Data.CONTENT_URI,
+                    "${ContactsContract.Data.CONTACT_ID}=? AND ${ContactsContract.Data.MIMETYPE}=?",
+                    arrayOf(contactId, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                )
+                val photoValues = ContentValues().apply {
+                    put(ContactsContract.Data.RAW_CONTACT_ID, rawIds.first().toLong())
+                    put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                    put(ContactsContract.CommonDataKinds.Photo.PHOTO, photoBytes)
+                }
+                context.contentResolver.insert(ContactsContract.Data.CONTENT_URI, photoValues)
+            }
             clearCache()
             true
         } catch (t: Throwable) {
@@ -332,6 +463,7 @@ class ContactsRepository(private val context: Context) {
         valueColumn: String,
         typeColumn: String,
         typeValue: Int,
+        typeValues: List<Int>? = null,
         values: List<String>
     ) {
         val rowIds = ArrayList<Long>()
@@ -347,7 +479,7 @@ class ContactsRepository(private val context: Context) {
         values.forEachIndexed { index, value ->
             val contentValues = ContentValues().apply {
                 put(valueColumn, value)
-                put(typeColumn, typeValue)
+                put(typeColumn, typeValues?.getOrNull(index) ?: typeValue)
             }
             if (index < rowIds.size) {
                 context.contentResolver.update(
