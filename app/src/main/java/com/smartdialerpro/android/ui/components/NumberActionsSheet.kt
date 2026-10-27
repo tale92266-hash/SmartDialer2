@@ -185,6 +185,7 @@ fun NumberActionsSheet(
             Spacer(Modifier.height(8.dp))
         }
     }
+}
 
 @Composable
 private fun SheetRow(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
