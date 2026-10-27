@@ -163,6 +163,7 @@ fun SettingsGeneralScreen(navController: NavController? = null) {
     var vibrate by remember { mutableStateOf(prefs.getBoolean("dialer_haptic", true)) }
     var dtmfTone by remember { mutableStateOf(prefs.getBoolean("dialer_tones", true)) }
     var showOnlyContacts by remember { mutableStateOf(prefs.getBoolean("show_only_contacts", false)) }
+    var openDialpadOnLaunch by remember { mutableStateOf(prefs.getBoolean("open_dialpad_on_launch", false)) }
     SettingsSubScreenScaffold(title = "General", onBack = { navController?.popBackStack() }) {
         SettingSwitchRow(
             icon = Icons.Rounded.Vibration,
@@ -191,6 +192,15 @@ fun SettingsGeneralScreen(navController: NavController? = null) {
             showOnlyContacts = it
             prefs.edit().putBoolean("show_only_contacts", it).apply()
         }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Dialpad,
+            title = "Open dialpad on launch",
+            subtitle = "Show the dialpad when the app starts",
+            checked = openDialpadOnLaunch
+        ) {
+            openDialpadOnLaunch = it
+            prefs.edit().putBoolean("open_dialpad_on_launch", it).apply()
+        }
     }
 }
 
@@ -199,6 +209,7 @@ fun SettingsCallsScreen(navController: NavController? = null) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     var confirmCall by remember { mutableStateOf(prefs.getBoolean("confirm_call", false)) }
+    var vibrateOnAnswer by remember { mutableStateOf(prefs.getBoolean("vibrate_on_answer", false)) }
     val dialerPrefs = remember { context.getSharedPreferences(DIALER_PREFS, Context.MODE_PRIVATE) }
     val selectedAccountId by remember { mutableStateOf(dialerPrefs.getString(KEY_ACCOUNT_ID, null)) }
     SettingsSubScreenScaffold(title = "Calls & SIM", onBack = { navController?.popBackStack() }) {
@@ -218,6 +229,15 @@ fun SettingsCallsScreen(navController: NavController? = null) {
             confirmCall = it
             prefs.edit().putBoolean("confirm_call", it).apply()
         }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Vibration,
+            title = "Vibrate when call connects",
+            subtitle = "Short vibration when the other side answers",
+            checked = vibrateOnAnswer
+        ) {
+            vibrateOnAnswer = it
+            prefs.edit().putBoolean("vibrate_on_answer", it).apply()
+        }
     }
 }
 
@@ -226,6 +246,7 @@ fun SettingsRecordingScreen(navController: NavController? = null) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     var autoRecord by remember { mutableStateOf(prefs.getBoolean("auto_record_calls", false)) }
+    var unknownOnly by remember { mutableStateOf(prefs.getBoolean("auto_record_unknown_only", false)) }
     SettingsSubScreenScaffold(title = "Recording", onBack = { navController?.popBackStack() }) {
         SettingSwitchRow(
             icon = Icons.Rounded.FiberManualRecord,
@@ -236,6 +257,15 @@ fun SettingsRecordingScreen(navController: NavController? = null) {
             autoRecord = it
             prefs.edit().putBoolean("auto_record_calls", it).apply()
             if (it) ToastHelper.show(context, "Recording will start when active calls connect.")
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Person,
+            title = "Unknown numbers only",
+            subtitle = "Auto-record only calls from numbers not in your contacts",
+            checked = unknownOnly
+        ) {
+            unknownOnly = it
+            prefs.edit().putBoolean("auto_record_unknown_only", it).apply()
         }
         SettingRow(
             icon = Icons.Rounded.FiberManualRecord,
@@ -286,9 +316,20 @@ fun SettingsPrivacyScreen(navController: NavController? = null) {
 @Composable
 fun SettingsSystemScreen(navController: NavController? = null) {
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    var keepScreenOn by remember { mutableStateOf(prefs.getBoolean("keep_screen_on", false)) }
     SettingsSubScreenScaffold(title = "System & About", onBack = { navController?.popBackStack() }) {
         val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
         val isDefault = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
+        SettingSwitchRow(
+            icon = Icons.Rounded.Visibility,
+            title = "Keep screen on during calls",
+            subtitle = "Prevent the display from sleeping on the call screen",
+            checked = keepScreenOn
+        ) {
+            keepScreenOn = it
+            prefs.edit().putBoolean("keep_screen_on", it).apply()
+        }
         SettingRow(
             icon = Icons.Rounded.Phone,
             title = "Default phone app",

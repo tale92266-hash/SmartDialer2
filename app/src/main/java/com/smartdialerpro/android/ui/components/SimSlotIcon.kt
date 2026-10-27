@@ -2,7 +2,6 @@ package com.smartdialerpro.android.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,7 +43,7 @@ fun SimSlotIcon(
         Canvas(modifier = Modifier.matchParentSize()) {
             val w = this.size.width
             val h = this.size.height
-            val stroke = 1.6.dp.toPx()
+            val stroke = 1.4.dp.toPx()
             // SIM card outline: rounded rect with the classic cut top-right corner.
             val cut = w * 0.28f
             val radius = 3.dp.toPx()
@@ -71,11 +70,11 @@ fun SimSlotIcon(
                 topLeft = Offset(chipLeft, chipTop),
                 size = Size(chipW, chipH),
                 cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
-                style = Stroke(width = 1.1.dp.toPx())
+                style = Stroke(width = 1.0.dp.toPx())
             )
             val midY = chipTop + chipH / 2f
-            drawLine(color, Offset(chipLeft, midY), Offset(chipLeft + chipW, midY), strokeWidth = 1.1.dp.toPx())
-            drawLine(color, Offset(chipLeft + chipW / 2f, chipTop), Offset(chipLeft + chipW / 2f, chipTop + chipH), strokeWidth = 1.1.dp.toPx())
+            drawLine(color, Offset(chipLeft, midY), Offset(chipLeft + chipW, midY), strokeWidth = 1.0.dp.toPx())
+            drawLine(color, Offset(chipLeft + chipW / 2f, chipTop), Offset(chipLeft + chipW / 2f, chipTop + chipH), strokeWidth = 1.0.dp.toPx())
         }
         Text(
             text = "$slot",
@@ -84,7 +83,6 @@ fun SimSlotIcon(
             color = color,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = 1.dp)
         )
     }
 }

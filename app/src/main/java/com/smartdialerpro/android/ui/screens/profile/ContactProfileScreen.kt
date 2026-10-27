@@ -22,8 +22,10 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -80,6 +82,7 @@ private data class ProfileData(
     val accounts: List<AccountSource>
 )
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ContactProfileScreen(
     number: String,
@@ -381,7 +384,14 @@ fun ContactProfileScreen(
                         text = number.ifBlank { "Private number" },
                         fontSize = 16.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp)
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .combinedClickable(
+                                onClick = {},
+                                onLongClick = {
+                                    if (number.isNotBlank()) copyToClipboard(context, number)
+                                }
+                            )
                     )
 
                     if (profile.favorite) {
@@ -443,7 +453,7 @@ fun ContactProfileScreen(
                                             if (sim.slotIndex >= 0) {
                                                 SimSlotIcon(
                                                     slot = sim.slotIndex + 1,
-                                                    size = 13.dp,
+                                                    size = 11.dp,
                                                     color = contentColorAnimated
                                                 )
                                             } else {
@@ -642,7 +652,7 @@ private fun ProfileCallHistoryRow(call: RecentCall) {
                 Text(if (call.duration > 0) formatDuration(call.duration) else "—", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 call.simSlot?.let {
                     Spacer(Modifier.height(3.dp))
-                    SimSlotIcon(slot = it, size = 13.dp)
+                    SimSlotIcon(slot = it, size = 11.dp)
                 }
             }
         }

@@ -155,10 +155,19 @@ fun MainScreen() {
                     if (currentRoute == Screen.Home.route || currentRoute == Screen.Dialer.route) {
                         leaveHomeSignal++
                     }
-                    navController.navigate(screen.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
+                    // From any detail screen (profile, editor, search,
+                    // settings sub-screens...), pop back to the Home tab
+                    // first, so a tab tap always lands on the requested
+                    // tab instead of leaving the detail screen in place.
+                    if (!isTabRoute) {
+                        navController.popBackStack(Screen.Home.route, inclusive = false)
+                    }
+                    if (screen.route != Screen.Home.route) {
+                        navController.navigate(screen.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 }
             }
@@ -221,7 +230,7 @@ fun MainScreen() {
                 }
             ) {
                 composable(Screen.Home.route) {
-                    HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = false, clearSearchSignal = leaveHomeSignal, reselectSignal = reselectSignal)
+                    HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = prefs.getBoolean("open_dialpad_on_launch", false), clearSearchSignal = leaveHomeSignal, reselectSignal = reselectSignal)
                 }
                 composable(Screen.Dialer.route) {
                     HomeScreen(navController, contactsViewModel, recentsViewModel, dialerViewModel, startWithDialerOpen = true, clearSearchSignal = leaveHomeSignal, reselectSignal = reselectSignal)

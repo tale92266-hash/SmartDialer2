@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.CallAudioState
@@ -78,8 +80,10 @@ object CallManager {
         override fun onStateChanged(call: Call, state: Int) {
             var shouldStopRecording = false
             var shouldAutoRecord = false
+            var shouldVibrate = false
             synchronized(lock) {
                 val snapshot = calls[call] ?: return
+                val previousState = snapshot.state
                 snapshot.state = state
                 when (state) {
                     Call.STATE_ACTIVE -> {
@@ -88,6 +92,8 @@ object CallManager {
                             autoRecordAttempted.add(call)
                             shouldAutoRecord = true
                         }
+                        // Fresh answer (not a resume from hold): vibrate once if enabled.
+                        if (previousState != Call.STATE_HOLDING) shouldVibrate = true
                     }
                     Call.STATE_HOLDING, Call.STATE_DISCONNECTING, Call.STATE_DISCONNECTED -> stopDurationTickerLocked(call)
                 }
@@ -103,6 +109,7 @@ object CallManager {
             }
             if (shouldStopRecording) stopRecordingFor(call)
             if (shouldAutoRecord) attemptAutoRecord(call)
+            if (shouldVibrate) vibrateOnAnswer()
             inCallService?.updateNotification()
         }
 
@@ -322,6 +329,31 @@ object CallManager {
 
     private fun stopRecordingFor(call: Call) { val context = inCallService?.applicationContext ?: return; if (CallRecordingManager.recordingCall === call && CallRecordingManager.isRecording.value) { CallRecordingManager.stopIfActive(context); inCallService?.updateNotification() } }
 
+    private fun vibrateOnAnswer() {
+        try {
+            val context = inCallService?.applicationContext ?: return
+            val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("vibrate_on_answer", false)) return
+            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
+            if (!vibrator.hasVibrator()) return
+            vibrator.vibrate(VibrationEffect.createOneShot(80, VibrationEffect.DEFAULT_AMPLITUDE))
+        } catch (t: Throwable) {
+            Log.e(TAG, "Answer vibration failed", t)
+        }
+    }
+
+    /** True when [number] matches a saved contact (PhoneLookup); unknown when blank or unmatched. */
+    private fun isKnownCaller(context: Context, number: String): Boolean {
+        if (number.isBlank()) return false
+        return try {
+            val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
+            context.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup._ID), null, null, null)?.use { it.count > 0 } ?: false
+        } catch (t: Throwable) {
+            Log.e(TAG, "Contact lookup failed", t)
+            false
+        }
+    }
+
     /**
      * Starts recording once per call when the user enabled auto-record.
      * Never crashes when the microphone permission is missing: the
@@ -332,6 +364,7 @@ object CallManager {
         try {
             val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("auto_record_calls", false)) return
+            if (prefs.getBoolean("auto_record_unknown_only", false) && isKnownCaller(context, callNumber.value)) return
             if (CallRecordingManager.isRecording.value) return
             if (call.state != Call.STATE_ACTIVE) return
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {

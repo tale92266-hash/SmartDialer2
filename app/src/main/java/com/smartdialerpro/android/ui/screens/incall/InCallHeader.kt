@@ -1,6 +1,12 @@
 package com.smartdialerpro.android.ui.screens.incall
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,12 +25,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun InCallHeader(
     stateText: String,
@@ -59,11 +67,24 @@ fun InCallHeader(
         )
         if (number.isNotBlank() && displayName != number) {
             Spacer(Modifier.height(5.dp))
+            val context = LocalContext.current
             Text(
                 text = number,
                 fontSize = 17.sp,
                 color = Color.White.copy(alpha = .68f),
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                modifier = Modifier.combinedClickable(
+                    onClick = {},
+                    onLongClick = {
+                        try {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("Phone Number", number))
+                            Toast.makeText(context, "Number copied to clipboard", Toast.LENGTH_SHORT).show()
+                        } catch (_: Throwable) {
+                            Toast.makeText(context, "Unable to copy", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                )
             )
         }
         if (!simInfo.isNullOrBlank()) {
