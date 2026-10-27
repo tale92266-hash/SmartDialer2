@@ -20,13 +20,19 @@ jobs:
         run: chmod +x gradlew
 
       - name: Restore signing keystore
-        if: ${{ secrets.SMARTDIALER_KEYSTORE_BASE64 != '' }}
+        env:
+          KEYSTORE_B64: ${{ secrets.SMARTDIALER_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.SMARTDIALER_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.SMARTDIALER_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SMARTDIALER_KEY_PASSWORD }}
         run: |
-          echo "${{ secrets.SMARTDIALER_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/smartdialer.p12"
-          echo "SMARTDIALER_KEYSTORE_FILE=$RUNNER_TEMP/smartdialer.p12" >> "$GITHUB_ENV"
-          echo "SMARTDIALER_KEYSTORE_PASSWORD=${{ secrets.SMARTDIALER_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "SMARTDIALER_KEY_ALIAS=${{ secrets.SMARTDIALER_KEY_ALIAS }}" >> "$GITHUB_ENV"
-          echo "SMARTDIALER_KEY_PASSWORD=${{ secrets.SMARTDIALER_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/smartdialer.p12"
+            echo "SMARTDIALER_KEYSTORE_FILE=$RUNNER_TEMP/smartdialer.p12" >> "$GITHUB_ENV"
+            echo "SMARTDIALER_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "SMARTDIALER_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "SMARTDIALER_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          fi
 
       - name: Build debug APK
         run: ./gradlew :app:assembleDebug --no-daemon
