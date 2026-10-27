@@ -106,9 +106,6 @@ object FakeCallLogWriter {
         if (postDial.isNotBlank()) {
             values.put(CallLog.Calls.POST_DIAL_DIGITS, postDial)
         }
-        if (isMissed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            values.put(CallLog.Calls.MISSED_REASON, CallLog.Calls.MISSED_REASON_NOT_ANSWERED)
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isMissed && durationSecs > 0) {
             val jitter = 0.85 + (Math.random() * 0.3)
             values.put(CallLog.Calls.DATA_USAGE, (durationSecs * 1600L * jitter).toLong())
