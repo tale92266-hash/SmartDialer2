@@ -1,8 +1,10 @@
 package com.smartdialerpro.android.ui
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.telecom.Call
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
@@ -48,12 +50,15 @@ import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.repository.ContactsRepository
 import com.smartdialerpro.android.service.CallManager
 import com.smartdialerpro.android.ui.navigation.Screen
+import com.smartdialerpro.android.ui.screens.contacts.ContactEditorScreen
 import com.smartdialerpro.android.ui.screens.contacts.ContactsScreen
 import com.smartdialerpro.android.ui.screens.contacts.FavoritesSpeedDialScreen
 import com.smartdialerpro.android.ui.screens.home.HomeScreen
 import com.smartdialerpro.android.ui.screens.incall.InCallActivity
 import com.smartdialerpro.android.ui.screens.profile.ContactProfileScreen
 import com.smartdialerpro.android.ui.screens.search.UniversalSearchScreen
+import com.smartdialerpro.android.ui.screens.settings.BlockedNumbersScreen
+import com.smartdialerpro.android.ui.screens.settings.RecordingsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsScreen
 import com.smartdialerpro.android.viewmodel.AppViewModelFactory
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
@@ -100,12 +105,32 @@ fun MainScreen() {
     }
 
     val isHomeTab = currentRoute == Screen.Home.route
-    BackHandler(enabled = !isHomeTab) {
+    val isTabRoute = items.any { it.route == currentRoute }
+    var lastBackPressMillis by remember { mutableStateOf(0L) }
+
+    // Home tab: double-back to exit. Registered first so the handlers
+    // below (deeper in the back stack) win when they are enabled.
+    BackHandler(enabled = isHomeTab) {
+        val now = System.currentTimeMillis()
+        if (now - lastBackPressMillis < 2000L) {
+            (context as? Activity)?.finish()
+        } else {
+            lastBackPressMillis = now
+            Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+        }
+    }
+    // Other top-level tabs: back returns to the Home tab.
+    BackHandler(enabled = isTabRoute && !isHomeTab) {
         navController.navigate(Screen.Home.route) {
             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
             launchSingleTop = true
             restoreState = true
         }
+    }
+    // Detail destinations (search, profile, editor, blocked numbers,
+    // recordings): back pops to the previous destination.
+    BackHandler(enabled = currentRoute != null && !isTabRoute) {
+        navController.popBackStack()
     }
 
     Scaffold(
@@ -175,7 +200,33 @@ fun MainScreen() {
                     ContactsScreen(contactsViewModel, navController)
                 }
                 composable(Screen.Settings.route) {
-                    SettingsScreen()
+                    SettingsScreen(navController)
+                }
+                composable(Screen.BlockedNumbers.route) {
+                    BlockedNumbersScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.Recordings.route) {
+                    RecordingsScreen(onBack = { navController.popBackStack() })
+                }
+                composable(
+                    route = Screen.ContactEditor.route,
+                    arguments = listOf(
+                        navArgument("contactId") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("number") { type = NavType.StringType; defaultValue = "" }
+                    )
+                ) { backStackEntry ->
+                    val contactIdArg = backStackEntry.arguments?.getString("contactId")?.takeIf { it.isNotBlank() }
+                    val numberArg = backStackEntry.arguments?.getString("number") ?: ""
+                    ContactEditorScreen(
+                        contactId = contactIdArg,
+                        prefilledNumber = numberArg,
+                        onBack = { navController.popBackStack() },
+                        onSaved = {
+                            contactsViewModel.loadContacts(force = true)
+                            recentsViewModel.loadRecents(force = true)
+                            navController.popBackStack()
+                        }
+                    )
                 }
                 composable(
                     route = Screen.UniversalSearch.route,
@@ -194,7 +245,18 @@ fun MainScreen() {
                     popEnterTransition = { fadeIn(tween(150)) },
                     popExitTransition = { fadeOut(tween(120)) + slideOutHorizontally(tween(200)) { it / 4 } }
                 ) { backStackEntry ->
-                    ContactProfileScreen(number = backStackEntry.arguments?.getString("number") ?: "", onBack = { navController.popBackStack() })
+                    ContactProfileScreen(
+                        number = backStackEntry.arguments?.getString("number") ?: "",
+                        onBack = { navController.popBackStack() },
+                        onOpenEditor = { contactId, editorNumber ->
+                            navController.navigate(Screen.ContactEditor.createRoute(contactId, editorNumber))
+                        },
+                        onOpenBlocked = { navController.navigate(Screen.BlockedNumbers.route) },
+                        onContactsChanged = {
+                            contactsViewModel.loadContacts(force = true)
+                            recentsViewModel.loadRecents(force = true)
+                        }
+                    )
                 }
             }
         }

@@ -13,6 +13,14 @@ data class Contact(
 )
 
 @Immutable
+data class ContactDetails(
+    val contactId: String,
+    val name: String,
+    val phones: List<String>,
+    val emails: List<String>
+)
+
+@Immutable
 data class RecentCall(
     val id: String,
     val name: String?,

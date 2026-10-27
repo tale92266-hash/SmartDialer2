@@ -1,10 +1,15 @@
 package com.smartdialerpro.android.ui.screens.search
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CallLog
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,11 +34,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
 import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.data.RecentCall
+import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.ui.screens.contacts.ContactAvatar
 import com.smartdialerpro.android.util.Utils
@@ -47,6 +54,17 @@ fun UniversalSearchScreen(contactsViewModel: ContactsViewModel, recentsViewModel
     var query by rememberSaveable { mutableStateOf("") }
     val contacts by contactsViewModel.contacts.collectAsState()
     val recentCalls by recentsViewModel.recentCalls.collectAsState()
+    var sheetNumber by remember { mutableStateOf<String?>(null) }
+    var pendingFavorite by remember { mutableStateOf<Contact?>(null) }
+    val favoriteWriteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            pendingFavorite?.let { contactsViewModel.toggleFavorite(it) }
+            contactsViewModel.loadContacts(force = true)
+        }
+        pendingFavorite = null
+    }
+
+    BackHandler(enabled = query.isNotEmpty()) { query = "" }
 
     LaunchedEffect(Unit) { contactsViewModel.loadContacts(force = true); recentsViewModel.loadRecents(force = true) }
     DisposableEffect(lifecycleOwner) {
@@ -85,14 +103,52 @@ fun UniversalSearchScreen(contactsViewModel: ContactsViewModel, recentsViewModel
             LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
                 if (matchingContacts.isNotEmpty()) {
                     item { SearchSectionTitle("Contacts", Icons.Rounded.Contacts) }
-                    items(matchingContacts, key = { "c_${it.id}_${it.number}" }) { contact -> ContactSearchRow(contact, { Utils.makeCall(context, contact.number) }) { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(contact.number))) } }
+                    items(matchingContacts, key = { "c_${it.id}_${it.number}" }) { contact -> ContactSearchRow(contact, { Utils.makeCall(context, contact.number) }, { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(contact.number))) }, { sheetNumber = contact.number }) }
                 }
                 if (matchingRecents.isNotEmpty()) {
                     item { SearchSectionTitle("Recent calls", Icons.Rounded.History) }
-                    items(matchingRecents, key = { "r_${it.id}" }) { call -> RecentSearchRow(call, { Utils.makeCall(context, call.number) }) { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(call.number))) } }
+                    items(matchingRecents, key = { "r_${it.id}" }) { call -> RecentSearchRow(call, { Utils.makeCall(context, call.number) }, { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(call.number))) }, { sheetNumber = call.number }) }
                 }
             }
         }
+    }
+
+    sheetNumber?.let { number ->
+        val sheetContact = contacts.firstOrNull { Utils.isSameNumber(it.number, number) }
+        NumberActionsSheet(
+            number = number,
+            contact = sheetContact,
+            contacts = contacts,
+            onDismiss = { sheetNumber = null },
+            onSaveNew = { newNumber ->
+                sheetNumber = null
+                navController.navigate(Screen.ContactEditor.createRoute(null, newNumber))
+            },
+            onAddToExisting = { existing, existingNumber ->
+                sheetNumber = null
+                navController.navigate(Screen.ContactEditor.createRoute(existing.id, existingNumber))
+            },
+            onToggleFavorite = {
+                val target = sheetContact
+                sheetNumber = null
+                if (target != null) {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                        contactsViewModel.toggleFavorite(target)
+                    } else {
+                        pendingFavorite = target
+                        favoriteWriteLauncher.launch(Manifest.permission.WRITE_CONTACTS)
+                    }
+                }
+            },
+            onCall = {
+                sheetNumber = null
+                Utils.makeCall(context, number)
+            },
+            onOpenProfile = {
+                sheetNumber = null
+                navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(number)))
+            }
+        )
     }
 }
 
@@ -112,8 +168,8 @@ private fun SearchSectionTitle(title: String, icon: ImageVector) {
 }
 
 @Composable
-private fun ContactSearchRow(contact: Contact, onCall: () -> Unit, onOpen: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+private fun ContactSearchRow(contact: Contact, onCall: () -> Unit, onOpen: () -> Unit, onLongPress: () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         ContactAvatar(contact.name.ifBlank { contact.number }, contact.photoUri, 46.dp)
         Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text(contact.name.ifBlank { contact.number }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(contact.number, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
         IconButton(onClick = onCall) { Icon(Icons.Rounded.Call, "Call", tint = MaterialTheme.colorScheme.primary) }
@@ -121,10 +177,10 @@ private fun ContactSearchRow(contact: Contact, onCall: () -> Unit, onOpen: () ->
 }
 
 @Composable
-private fun RecentSearchRow(call: RecentCall, onCall: () -> Unit, onOpen: () -> Unit) {
+private fun RecentSearchRow(call: RecentCall, onCall: () -> Unit, onOpen: () -> Unit, onLongPress: () -> Unit = {}) {
     val displayName = call.name?.takeIf { it.isNotBlank() } ?: call.number
     val typeIcon = when (call.type) { CallLog.Calls.MISSED_TYPE -> Icons.Rounded.CallMissed; CallLog.Calls.INCOMING_TYPE -> Icons.Rounded.CallReceived; CallLog.Calls.OUTGOING_TYPE -> Icons.Rounded.CallMade; else -> Icons.Rounded.Call }
-    Row(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         ContactAvatar(displayName, call.photoUri, 46.dp)
         Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text(displayName, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis); Row(verticalAlignment = Alignment.CenterVertically) { Icon(typeIcon, null, modifier = Modifier.size(14.dp), tint = if (call.type == CallLog.Calls.MISSED_TYPE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(5.dp)); Text(call.number, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) } }
         IconButton(onClick = onCall) { Icon(Icons.Rounded.Call, "Call", tint = MaterialTheme.colorScheme.primary) }

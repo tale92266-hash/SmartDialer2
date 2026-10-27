@@ -431,6 +431,61 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
     }
 }
 
+fun isNumberBlocked(context: Context, number: String): Boolean {
+    return try {
+        val uri = BlockedNumberContract.BlockedNumbers.CONTENT_URI
+        val projection = arrayOf(
+            BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER,
+            BlockedNumberContract.BlockedNumbers.COLUMN_E164_NUMBER
+        )
+        var blocked = false
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            val numIdx = cursor.getColumnIndex(BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER)
+            val e164Idx = cursor.getColumnIndex(BlockedNumberContract.BlockedNumbers.COLUMN_E164_NUMBER)
+            while (cursor.moveToNext() && !blocked) {
+                val original = if (numIdx >= 0) cursor.getString(numIdx).orEmpty() else ""
+                val e164 = if (e164Idx >= 0) cursor.getString(e164Idx).orEmpty() else ""
+                blocked = original.isNotBlank() && PhoneNumberUtils.compare(original, number) ||
+                    e164.isNotBlank() && PhoneNumberUtils.compare(e164, number)
+            }
+        }
+        blocked
+    } catch (t: Throwable) {
+        android.util.Log.w("BlockedNumbers", "Unable to check blocked state", t)
+        false
+    }
+}
+
+fun unblockNumberByNumber(context: Context, number: String): Boolean {
+    return try {
+        val uri = BlockedNumberContract.BlockedNumbers.CONTENT_URI
+        val projection = arrayOf(
+            BlockedNumberContract.BlockedNumbers.COLUMN_ID,
+            BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER,
+            BlockedNumberContract.BlockedNumbers.COLUMN_E164_NUMBER
+        )
+        var targetId: Long? = null
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            val idIdx = cursor.getColumnIndex(BlockedNumberContract.BlockedNumbers.COLUMN_ID)
+            val numIdx = cursor.getColumnIndex(BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER)
+            val e164Idx = cursor.getColumnIndex(BlockedNumberContract.BlockedNumbers.COLUMN_E164_NUMBER)
+            while (cursor.moveToNext() && targetId == null) {
+                val original = if (numIdx >= 0) cursor.getString(numIdx).orEmpty() else ""
+                val e164 = if (e164Idx >= 0) cursor.getString(e164Idx).orEmpty() else ""
+                if ((original.isNotBlank() && PhoneNumberUtils.compare(original, number)) ||
+                    (e164.isNotBlank() && PhoneNumberUtils.compare(e164, number))
+                ) {
+                    targetId = if (idIdx >= 0) cursor.getLong(idIdx) else null
+                }
+            }
+        }
+        if (targetId != null) unblockSystemNumber(context, targetId!!) else false
+    } catch (t: Throwable) {
+        android.util.Log.e("BlockedNumbers", "Error unblocking number", t)
+        false
+    }
+}
+
 private fun fetchAllSystemBlockedNumbers(context: Context): List<BlockedEntry> {
     val list = mutableListOf<BlockedEntry>()
     try {
@@ -472,7 +527,7 @@ private fun resolveContactName(context: Context, number: String): String? {
     }
 }
 
-private fun blockSystemNumber(context: Context, number: String): Boolean {
+fun blockSystemNumber(context: Context, number: String): Boolean {
     return try {
         val values = ContentValues().apply {
             put(BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, number)
@@ -485,7 +540,7 @@ private fun blockSystemNumber(context: Context, number: String): Boolean {
     }
 }
 
-private fun unblockSystemNumber(context: Context, id: Long): Boolean {
+fun unblockSystemNumber(context: Context, id: Long): Boolean {
     return try {
         val uri = Uri.withAppendedPath(BlockedNumberContract.BlockedNumbers.CONTENT_URI, id.toString())
         val deleted = context.contentResolver.delete(uri, null, null)

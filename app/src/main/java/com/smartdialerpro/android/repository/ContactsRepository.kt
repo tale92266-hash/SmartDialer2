@@ -1,6 +1,7 @@
 package com.smartdialerpro.android.repository
 
 import android.Manifest
+import android.content.ContentProviderOperation
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
@@ -8,6 +9,7 @@ import android.provider.ContactsContract
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.smartdialerpro.android.data.Contact
+import com.smartdialerpro.android.data.ContactDetails
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -137,6 +139,259 @@ class ContactsRepository(private val context: Context) {
             updated
         } catch (t: Throwable) {
             Log.e(TAG, "Unable to update favorite contact $contactId", t)
+            false
+        }
+    }
+
+    private fun hasWriteContactsPermission(): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED
+
+    private fun clearCache() {
+        memoryCache = emptyList()
+    }
+
+    /** Creates a new contact in the system contacts provider. Returns false when the write fails. */
+    suspend fun createContact(name: String, phones: List<String>, emails: List<String>): Boolean = withContext(Dispatchers.IO) {
+        if (name.isBlank() || phones.none { it.isNotBlank() }) return@withContext false
+        if (!hasWriteContactsPermission()) {
+            Log.w(TAG, "WRITE_CONTACTS is not granted; contact creation rejected")
+            return@withContext false
+        }
+        try {
+            val ops = ArrayList<ContentProviderOperation>()
+            ops.add(
+                ContentProviderOperation.newInsert(ContactsContract.RawContacts.CONTENT_URI)
+                    .withValue(ContactsContract.RawContacts.ACCOUNT_NAME, null)
+                    .withValue(ContactsContract.RawContacts.ACCOUNT_TYPE, null)
+                    .build()
+            )
+            ops.add(
+                ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                    .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                    .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+                    .withValue(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name.trim())
+                    .build()
+            )
+            for (phone in phones) {
+                if (phone.isBlank()) continue
+                ops.add(
+                    ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+                        .withValue(ContactsContract.CommonDataKinds.Phone.NUMBER, phone.trim())
+                        .withValue(ContactsContract.CommonDataKinds.Phone.TYPE, ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+                        .build()
+                )
+            }
+            for (email in emails) {
+                if (email.isBlank()) continue
+                ops.add(
+                    ContentProviderOperation.newInsert(ContactsContract.Data.CONTENT_URI)
+                        .withValueBackReference(ContactsContract.Data.RAW_CONTACT_ID, 0)
+                        .withValue(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
+                        .withValue(ContactsContract.CommonDataKinds.Email.ADDRESS, email.trim())
+                        .withValue(ContactsContract.CommonDataKinds.Email.TYPE, ContactsContract.CommonDataKinds.Email.TYPE_HOME)
+                        .build()
+                )
+            }
+            context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
+            clearCache()
+            true
+        } catch (t: Throwable) {
+            Log.e(TAG, "Unable to create contact", t)
+            false
+        }
+    }
+
+    /** Full name, phone numbers and email addresses for one contact, for the in-app editor. */
+    suspend fun getContactDetails(contactId: String): ContactDetails? = withContext(Dispatchers.IO) {
+        if (contactId.isBlank()) return@withContext null
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            return@withContext null
+        }
+        try {
+            var name = ""
+            context.contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                arrayOf(ContactsContract.Contacts.DISPLAY_NAME),
+                "${ContactsContract.Contacts._ID}=?",
+                arrayOf(contactId),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) name = cursor.getString(0).orEmpty()
+            }
+            val phones = queryContactDataValues(
+                contactId,
+                ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                ContactsContract.CommonDataKinds.Phone.NUMBER
+            )
+            val emails = queryContactDataValues(
+                contactId,
+                ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
+                ContactsContract.CommonDataKinds.Email.ADDRESS
+            )
+            ContactDetails(contactId = contactId, name = name, phones = phones, emails = emails)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Unable to read contact details for $contactId", t)
+            null
+        }
+    }
+
+    private fun queryContactDataValues(contactId: String, mimeType: String, column: String): List<String> {
+        val values = ArrayList<String>()
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(column),
+            "${ContactsContract.Data.CONTACT_ID}=? AND ${ContactsContract.Data.MIMETYPE}=?",
+            arrayOf(contactId, mimeType),
+            "${ContactsContract.Data._ID} ASC"
+        )?.use { cursor ->
+            val idx = cursor.getColumnIndex(column)
+            if (idx < 0) return values
+            while (cursor.moveToNext()) {
+                val value = cursor.getString(idx)?.trim().orEmpty()
+                if (value.isNotBlank() && !values.contains(value)) values.add(value)
+            }
+        }
+        return values
+    }
+
+    /** Updates name, phones and emails in place. Rows beyond the supplied lists are removed. */
+    suspend fun updateContact(contactId: String, name: String, phones: List<String>, emails: List<String>): Boolean = withContext(Dispatchers.IO) {
+        if (contactId.isBlank() || name.isBlank() || phones.none { it.isNotBlank() }) return@withContext false
+        if (!hasWriteContactsPermission()) {
+            Log.w(TAG, "WRITE_CONTACTS is not granted; contact update rejected")
+            return@withContext false
+        }
+        try {
+            val rawIds = ArrayList<String>()
+            context.contentResolver.query(
+                ContactsContract.RawContacts.CONTENT_URI,
+                arrayOf(ContactsContract.RawContacts._ID),
+                "${ContactsContract.RawContacts.CONTACT_ID}=?",
+                arrayOf(contactId),
+                null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getString(0).orEmpty()
+                    if (id.isNotBlank()) rawIds.add(id)
+                }
+            }
+            if (rawIds.isEmpty()) return@withContext false
+
+            val nameValues = ContentValues().apply {
+                put(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name.trim())
+            }
+            val updatedNameRows = context.contentResolver.update(
+                ContactsContract.Data.CONTENT_URI,
+                nameValues,
+                "${ContactsContract.Data.CONTACT_ID}=? AND ${ContactsContract.Data.MIMETYPE}=?",
+                arrayOf(contactId, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+            )
+            if (updatedNameRows == 0) {
+                val values = ContentValues().apply {
+                    put(ContactsContract.Data.RAW_CONTACT_ID, rawIds.first().toLong())
+                    put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.StructuredName.CONTENT_ITEM_TYPE)
+                    put(ContactsContract.CommonDataKinds.StructuredName.DISPLAY_NAME, name.trim())
+                }
+                context.contentResolver.insert(ContactsContract.Data.CONTENT_URI, values)
+            }
+
+            val cleanPhones = phones.map { it.trim() }.filter { it.isNotBlank() }
+            replaceContactDataRows(
+                contactId = contactId,
+                rawContactId = rawIds.first(),
+                mimeType = ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE,
+                valueColumn = ContactsContract.CommonDataKinds.Phone.NUMBER,
+                typeColumn = ContactsContract.CommonDataKinds.Phone.TYPE,
+                typeValue = ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE,
+                values = cleanPhones
+            )
+            val cleanEmails = emails.map { it.trim() }.filter { it.isNotBlank() }
+            replaceContactDataRows(
+                contactId = contactId,
+                rawContactId = rawIds.first(),
+                mimeType = ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE,
+                valueColumn = ContactsContract.CommonDataKinds.Email.ADDRESS,
+                typeColumn = ContactsContract.CommonDataKinds.Email.TYPE,
+                typeValue = ContactsContract.CommonDataKinds.Email.TYPE_HOME,
+                values = cleanEmails
+            )
+            clearCache()
+            true
+        } catch (t: Throwable) {
+            Log.e(TAG, "Unable to update contact $contactId", t)
+            false
+        }
+    }
+
+    private fun replaceContactDataRows(
+        contactId: String,
+        rawContactId: String,
+        mimeType: String,
+        valueColumn: String,
+        typeColumn: String,
+        typeValue: Int,
+        values: List<String>
+    ) {
+        val rowIds = ArrayList<Long>()
+        context.contentResolver.query(
+            ContactsContract.Data.CONTENT_URI,
+            arrayOf(ContactsContract.Data._ID),
+            "${ContactsContract.Data.CONTACT_ID}=? AND ${ContactsContract.Data.MIMETYPE}=?",
+            arrayOf(contactId, mimeType),
+            "${ContactsContract.Data._ID} ASC"
+        )?.use { cursor ->
+            while (cursor.moveToNext()) rowIds.add(cursor.getLong(0))
+        }
+        values.forEachIndexed { index, value ->
+            val contentValues = ContentValues().apply {
+                put(valueColumn, value)
+                put(typeColumn, typeValue)
+            }
+            if (index < rowIds.size) {
+                context.contentResolver.update(
+                    ContactsContract.Data.CONTENT_URI,
+                    contentValues,
+                    "${ContactsContract.Data._ID}=?",
+                    arrayOf(rowIds[index].toString())
+                )
+            } else {
+                contentValues.apply {
+                    put(ContactsContract.Data.RAW_CONTACT_ID, rawContactId.toLong())
+                    put(ContactsContract.Data.MIMETYPE, mimeType)
+                }
+                context.contentResolver.insert(ContactsContract.Data.CONTENT_URI, contentValues)
+            }
+        }
+        if (rowIds.size > values.size) {
+            for (index in values.size until rowIds.size) {
+                context.contentResolver.delete(
+                    ContactsContract.Data.CONTENT_URI,
+                    "${ContactsContract.Data._ID}=?",
+                    arrayOf(rowIds[index].toString())
+                )
+            }
+        }
+    }
+
+    /** Deletes one contact (all of its raw contacts) from the system contacts provider. */
+    suspend fun deleteContact(contactId: String): Boolean = withContext(Dispatchers.IO) {
+        if (contactId.isBlank()) return@withContext false
+        if (!hasWriteContactsPermission()) {
+            Log.w(TAG, "WRITE_CONTACTS is not granted; contact deletion rejected")
+            return@withContext false
+        }
+        try {
+            val deleted = context.contentResolver.delete(
+                ContactsContract.Contacts.CONTENT_URI,
+                "${ContactsContract.Contacts._ID}=?",
+                arrayOf(contactId)
+            ) > 0
+            if (deleted) clearCache()
+            deleted
+        } catch (t: Throwable) {
+            Log.e(TAG, "Unable to delete contact $contactId", t)
             false
         }
     }

@@ -7,11 +7,13 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.speech.RecognizerIntent
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,6 +42,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavController
 import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.ui.components.EmptyStateView
+import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.util.Utils
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
@@ -65,6 +68,14 @@ fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
     val writeLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) viewModel.loadContacts(force = true)
     }
+    var pendingFavorite by remember { mutableStateOf<Contact?>(null) }
+    val favoriteWriteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            pendingFavorite?.let { viewModel.toggleFavorite(it) }
+            viewModel.loadContacts(force = true)
+        }
+        pendingFavorite = null
+    }
 
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
@@ -80,6 +91,9 @@ fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
 
     val contacts by viewModel.contacts.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    var sheetNumber by remember { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = searchQuery.isNotBlank()) { viewModel.updateSearchQuery("") }
 
     val structuredItems = remember(contacts, searchQuery) {
         val query = searchQuery.trim()
@@ -160,7 +174,11 @@ fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
                 onActionClick = { launcher.launch(Manifest.permission.READ_CONTACTS) }
             )
         } else {
-            ContactsHeader(searchQuery, viewModel::updateSearchQuery)
+            ContactsHeader(
+                searchQuery,
+                viewModel::updateSearchQuery,
+                onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, "")) }
+            )
 
             val isSearching = searchQuery.isNotBlank()
             val shouldShowEmpty = if (isSearching) structuredItems.isEmpty() else contacts.isEmpty()
@@ -216,7 +234,8 @@ fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
                                             } else {
                                                 writeLauncher.launch(Manifest.permission.WRITE_CONTACTS)
                                             }
-                                        }
+                                        },
+                                        onLongPress = { sheetNumber = item.contact.number }
                                     )
                                 }
                             }
@@ -323,13 +342,55 @@ fun ContactsScreen(viewModel: ContactsViewModel, navController: NavController) {
             }
         }
     }
+
+    sheetNumber?.let { number ->
+        val sheetContact = contacts.firstOrNull { Utils.isSameNumber(it.number, number) }
+        NumberActionsSheet(
+            number = number,
+            contact = sheetContact,
+            contacts = contacts,
+            onDismiss = { sheetNumber = null },
+            onSaveNew = { newNumber ->
+                sheetNumber = null
+                navController.navigate(Screen.ContactEditor.createRoute(null, newNumber))
+            },
+            onAddToExisting = { existing, existingNumber ->
+                sheetNumber = null
+                navController.navigate(Screen.ContactEditor.createRoute(existing.id, existingNumber))
+            },
+            onToggleFavorite = {
+                val target = sheetContact
+                sheetNumber = null
+                if (target != null) {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                        viewModel.toggleFavorite(target)
+                    } else {
+                        pendingFavorite = target
+                        favoriteWriteLauncher.launch(Manifest.permission.WRITE_CONTACTS)
+                    }
+                }
+            },
+            onCall = {
+                sheetNumber = null
+                Utils.makeCall(context, number)
+            },
+            onOpenProfile = {
+                sheetNumber = null
+                navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(number)))
+            }
+        )
+    }
 }
 
 private fun hasReadContacts(context: Context) =
     ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
 @Composable
-private fun ContactsHeader(searchQuery: String, onQueryChange: (String) -> Unit) {
+private fun ContactsHeader(
+    searchQuery: String,
+    onQueryChange: (String) -> Unit,
+    onAddContact: () -> Unit
+) {
     val context = LocalContext.current
     val voiceLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -345,7 +406,17 @@ private fun ContactsHeader(searchQuery: String, onQueryChange: (String) -> Unit)
     }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-        Text("Contacts", fontSize = 32.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("Contacts", fontSize = 32.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = onAddContact, modifier = Modifier.size(44.dp)) {
+                Icon(
+                    Icons.Rounded.PersonAdd,
+                    contentDescription = "Add contact",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+        }
         Text(
             if (searchQuery.isBlank()) "Your people, grouped alphabetically" else "Searching contacts",
             fontSize = 13.sp,
@@ -412,12 +483,13 @@ fun ContactRow(
     onRowClick: () -> Unit,
     onCall: () -> Unit,
     onWhatsApp: () -> Unit,
-    onFavorite: () -> Unit
+    onFavorite: () -> Unit,
+    onLongPress: () -> Unit = {}
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable(onClick = onRowClick)
+            .combinedClickable(onClick = onRowClick, onLongClick = onLongPress)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

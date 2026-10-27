@@ -13,6 +13,7 @@ import android.telecom.InCallService
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import com.smartdialerpro.android.R
 import com.smartdialerpro.android.ui.screens.incall.InCallActivity
 
@@ -149,6 +150,17 @@ class AppInCallService : InCallService() {
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
     )
 
+    /** The caller as a compat Person, so call notifications render in the system call style. */
+    private fun callPerson(): Person {
+        val name = CallManager.callerName.value?.takeIf { it.isNotBlank() }
+        val number = CallManager.callNumber.value
+        return Person.Builder()
+            .setName(name ?: number.ifBlank { "Phone call" })
+            .apply { if (number.isNotBlank()) setUri("tel:$number") }
+            .setImportant(true)
+            .build()
+    }
+
     private fun buildOngoingNotification(): Notification {
         val state = CallManager.callState.value
         val name = CallManager.callerName.value?.takeIf { it.isNotBlank() }
@@ -187,6 +199,12 @@ class AppInCallService : InCallService() {
         if (state == Call.STATE_ACTIVE) builder.setWhen(System.currentTimeMillis() - duration * 1000L).setUsesChronometer(true)
 
         builder
+            .setStyle(
+                NotificationCompat.CallStyle.forOngoingCall(
+                    callPerson(),
+                    actionPending("ACTION_END_CALL", 1)
+                )
+            )
             .addAction(R.drawable.ic_call, if (CallManager.isMuted.value) "Unmute" else "Mute", actionPending("ACTION_TOGGLE_MUTE", 6))
             .addAction(R.drawable.ic_volume_up, if (CallManager.audioRoute.value == CallAudioState.ROUTE_SPEAKER) "Earpiece" else "Speaker", actionPending("ACTION_TOGGLE_SPEAKER", 2))
             .addAction(R.drawable.ic_call_end, "End", actionPending("ACTION_END_CALL", 1))
@@ -220,8 +238,13 @@ class AppInCallService : InCallService() {
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(openCallPendingIntent(5), true)
-            .addAction(R.drawable.ic_call_end, "Decline", actionPending("ACTION_DECLINE_CALL", 4))
-            .addAction(R.drawable.ic_call, "Answer", actionPending("ACTION_ANSWER_CALL", 3))
+            .setStyle(
+                NotificationCompat.CallStyle.forIncomingCall(
+                    callPerson(),
+                    actionPending("ACTION_DECLINE_CALL", 4),
+                    actionPending("ACTION_ANSWER_CALL", 3)
+                )
+            )
             .build()
     }
 

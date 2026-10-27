@@ -9,13 +9,19 @@ import android.os.Bundle
 import android.telecom.Call
 import android.telecom.CallAudioState
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,37 +31,77 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.smartdialerpro.android.MainActivity
 import com.smartdialerpro.android.service.CallManager
+import com.smartdialerpro.android.ui.screens.contacts.ContactEditorScreen
+import com.smartdialerpro.android.ui.theme.CallAnswerGreen
+import com.smartdialerpro.android.ui.theme.CallEndRed
 import com.smartdialerpro.android.ui.theme.SmartDialerTheme
+import com.smartdialerpro.android.util.Utils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 class InCallActivity : ComponentActivity() {
+    private val keypadOpenState = mutableStateOf(false)
+    private val saveEditorOpenState = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // Innermost layer first: editor, then keypad, then leave the call screen.
+                if (saveEditorOpenState.value) {
+                    saveEditorOpenState.value = false
+                    return
+                }
+                if (keypadOpenState.value) {
+                    keypadOpenState.value = false
+                    return
+                }
+                if (CallManager.callState.value != Call.STATE_DISCONNECTED) {
+                    startActivity(Intent(this@InCallActivity, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP })
+                } else finishAndRemoveTask()
+            }
+        })
         setContent {
             SmartDialerTheme {
                 PremiumInCallScreen(
                     onFinish = { finishAndRemoveTask() },
-                    onAddCall = { startActivity(Intent(Intent.ACTION_DIAL).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }) }
+                    onAddCall = { startActivity(Intent(Intent.ACTION_DIAL).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }) },
+                    keypadOpen = keypadOpenState.value,
+                    onKeypadOpenChange = { keypadOpenState.value = it },
+                    saveEditorOpen = saveEditorOpenState.value,
+                    onSaveEditorOpenChange = { saveEditorOpenState.value = it }
                 )
             }
         }
     }
 
-    override fun onBackPressed() {
-        if (CallManager.callState.value != Call.STATE_DISCONNECTED) {
-            startActivity(Intent(this, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP })
-        } else finishAndRemoveTask()
+    override fun onResume() {
+        super.onResume()
+        // Stale-call watchdog: returning to this activity with no tracked
+        // call and no live state means there is nothing to show.
+        if (CallManager.trackedCalls.value.isEmpty() && CallManager.callState.value == Call.STATE_DISCONNECTED) {
+            finishAndRemoveTask()
+        }
     }
 }
 
 @Composable
-fun PremiumInCallScreen(onFinish: () -> Unit, onAddCall: () -> Unit) {
+fun PremiumInCallScreen(
+    onFinish: () -> Unit,
+    onAddCall: () -> Unit,
+    keypadOpen: Boolean = false,
+    onKeypadOpenChange: (Boolean) -> Unit = {},
+    saveEditorOpen: Boolean = false,
+    onSaveEditorOpenChange: (Boolean) -> Unit = {}
+) {
     val context = LocalContext.current
     val callState by CallManager.callState.collectAsState()
     val number by CallManager.callNumber.collectAsState()
@@ -68,19 +114,34 @@ fun PremiumInCallScreen(onFinish: () -> Unit, onAddCall: () -> Unit) {
     val isRecording by CallManager.isRecording.collectAsState()
     val duration by CallManager.duration.collectAsState()
     val trackedCalls by CallManager.trackedCalls.collectAsState()
-    var showKeypad by remember { mutableStateOf(false) }
     var contactBitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
     var pendingRecordAfterPermission by remember { mutableStateOf(false) }
+    var lastLiveDuration by remember { mutableStateOf(0L) }
+    var lastEndedName by remember { mutableStateOf("") }
+    var lastEndedNumber by remember { mutableStateOf("") }
+    var showEndedOverlay by remember { mutableStateOf(false) }
+    var wasLive by remember { mutableStateOf(false) }
 
     val recordPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted && pendingRecordAfterPermission) CallManager.toggleRecord(context)
         pendingRecordAfterPermission = false
     }
 
-    LaunchedEffect(callState, trackedCalls.size) {
-        if (callState == Call.STATE_DISCONNECTED && trackedCalls.isEmpty()) {
+    LaunchedEffect(callState, trackedCalls.size, showEndedOverlay) {
+        if (callState == Call.STATE_DISCONNECTED && trackedCalls.isEmpty() && !showEndedOverlay) {
             delay(300)
             onFinish()
+        }
+    }
+
+    // Stale-call watchdog: a fresh state with no tracked call is not a
+    // real call screen; give Telecom a short grace, then leave.
+    LaunchedEffect(callState, trackedCalls.size) {
+        if (callState == Call.STATE_NEW && trackedCalls.isEmpty()) {
+            delay(1200)
+            if (CallManager.callState.value == Call.STATE_NEW && CallManager.trackedCalls.value.isEmpty()) {
+                onFinish()
+            }
         }
     }
 
@@ -107,6 +168,32 @@ fun PremiumInCallScreen(onFinish: () -> Unit, onAddCall: () -> Unit) {
     val showActiveControls = callState == Call.STATE_ACTIVE || callState == Call.STATE_HOLDING
     val speakerOn = audioRoute == CallAudioState.ROUTE_SPEAKER
 
+    // Remember the last live call so the end-call screen shows only the
+    // current call's details, never a previous call's name or number.
+    LaunchedEffect(duration, callState) {
+        if (callState == Call.STATE_ACTIVE || callState == Call.STATE_HOLDING) {
+            lastLiveDuration = duration
+            lastEndedName = displayName
+            lastEndedNumber = number
+        }
+    }
+
+    LaunchedEffect(callState, trackedCalls.size) {
+        val live = callState == Call.STATE_ACTIVE || callState == Call.STATE_HOLDING
+        if (wasLive && !live && trackedCalls.isEmpty() && lastEndedNumber.isNotBlank()) {
+            showEndedOverlay = true
+        }
+        wasLive = live
+    }
+
+    LaunchedEffect(showEndedOverlay, saveEditorOpen) {
+        if (showEndedOverlay && !saveEditorOpen) {
+            delay(4000)
+            showEndedOverlay = false
+            onFinish()
+        }
+    }
+
     fun requestOrToggleRecording() {
         if (CallManager.isRecording.value) {
             CallManager.toggleRecord(context)
@@ -125,6 +212,21 @@ fun PremiumInCallScreen(onFinish: () -> Unit, onAddCall: () -> Unit) {
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 InCallHeader(stateText, displayName, number, simInfo, contactBitmap, isRinging || isConnecting)
+                if (isRecording && showActiveControls) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(9.dp).background(CallEndRed, CircleShape)
+                        )
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            "Recording",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
                 if (trackedCalls.size > 1) {
                     Spacer(Modifier.height(16.dp))
                     CallSelector(trackedCalls) { CallManager.selectCall(it) }
@@ -133,7 +235,7 @@ fun PremiumInCallScreen(onFinish: () -> Unit, onAddCall: () -> Unit) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 when {
                     isRinging -> IncomingCallControls({ CallManager.reject() }, { CallManager.answer() })
-                    showKeypad -> InCallDtmfPad { showKeypad = false }
+                    keypadOpen -> InCallDtmfPad { onKeypadOpenChange(false) }
                     showActiveControls -> ActiveCallControls(
                         context = context,
                         isMuted = isMuted,
@@ -141,7 +243,7 @@ fun PremiumInCallScreen(onFinish: () -> Unit, onAddCall: () -> Unit) {
                         isOnHold = isOnHold,
                         isRecording = isRecording,
                         multipleCalls = trackedCalls.size > 1,
-                        onKeypad = { showKeypad = true },
+                        onKeypad = { onKeypadOpenChange(true) },
                         onAddCall = onAddCall,
                         onRecord = ::requestOrToggleRecording
                     )
@@ -150,6 +252,84 @@ fun PremiumInCallScreen(onFinish: () -> Unit, onAddCall: () -> Unit) {
                 Spacer(Modifier.height(20.dp))
                 if (!isRinging && callState != Call.STATE_DISCONNECTED) EndCallButton()
             }
+        }
+
+        if (showEndedOverlay) {
+            Box(
+                Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF08070D), Color(0xFF15102A), Color(0xFF241238), Color(0xFF100B19)))),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        Modifier.size(76.dp).background(CallEndRed, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.CallEnd, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    Text("Call ended", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        lastEndedName,
+                        color = Color.White,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (lastEndedNumber.isNotBlank() && lastEndedNumber != lastEndedName) {
+                        Text(lastEndedNumber, color = Color.White.copy(alpha = .68f), fontSize = 15.sp)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Duration ${formatDuration(lastLiveDuration)}",
+                        color = Color.White.copy(alpha = .78f),
+                        fontSize = 15.sp
+                    )
+                    Spacer(Modifier.height(26.dp))
+                    Button(
+                        onClick = {
+                            if (lastEndedNumber.isNotBlank()) Utils.makeCall(context, lastEndedNumber)
+                            onFinish()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = CallAnswerGreen, contentColor = Color.White),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Call back")
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedButton(
+                        onClick = { onSaveEditorOpenChange(true) },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = .5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Save number")
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    TextButton(onClick = { showEndedOverlay = false; onFinish() }) {
+                        Text("Close", color = Color.White.copy(alpha = .85f))
+                    }
+                }
+            }
+        }
+
+        if (saveEditorOpen) {
+            ContactEditorScreen(
+                contactId = null,
+                prefilledNumber = lastEndedNumber,
+                onBack = { onSaveEditorOpenChange(false) },
+                onSaved = {
+                    onSaveEditorOpenChange(false)
+                    showEndedOverlay = false
+                    onFinish()
+                }
+            )
         }
     }
 }

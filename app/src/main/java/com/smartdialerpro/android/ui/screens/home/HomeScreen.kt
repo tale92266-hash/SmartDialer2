@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.CallLog
-import android.provider.ContactsContract
 import android.speech.RecognizerIntent
 import android.telecom.TelecomManager
 import android.widget.Toast
@@ -78,7 +77,9 @@ import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.ui.components.EmptyStateView
+import com.smartdialerpro.android.ui.components.NumberActionsSheet
 import com.smartdialerpro.android.ui.navigation.Screen
+import com.smartdialerpro.android.ui.theme.CallAnswerGreen
 import com.smartdialerpro.android.util.Utils
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
 import com.smartdialerpro.android.viewmodel.DialerViewModel
@@ -134,6 +135,15 @@ fun HomeScreen(
     val contacts by contactsViewModel.contacts.collectAsState()
     val recentCalls by recentsViewModel.recentCalls.collectAsState()
     val sims by dialerViewModel.availableSims.collectAsState()
+    var sheetNumber by remember { mutableStateOf<String?>(null) }
+    var pendingFavorite by remember { mutableStateOf<Contact?>(null) }
+    val favoriteWriteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            pendingFavorite?.let { contactsViewModel.toggleFavorite(it) }
+            contactsViewModel.loadContacts(force = true)
+        }
+        pendingFavorite = null
+    }
 
     val searchUnifiedMatches by dialerViewModel.searchUnifiedMatches.collectAsState()
 
@@ -205,9 +215,11 @@ fun HomeScreen(
             .collect { dialerOpen = false }
     }
 
-    BackHandler(enabled = dialerOpen || isSearchMode) {
+    BackHandler(enabled = dialerOpen || isSearchMode || expandedCallId != null) {
         if (dialerOpen) {
             dialerOpen = false
+        } else if (expandedCallId != null) {
+            expandedCallId = null
         } else if (isSearchMode) {
             topSearchQuery = ""
             dialedNumber = ""
@@ -358,7 +370,8 @@ fun HomeScreen(
                                             onMessage = { openSms(context, item.call.number) },
                                             onWhatsApp = { openWhatsApp(context, item.call.number) },
                                             onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
-                                            onAddContact = { createNewContact(context, item.call.number) }
+                                            onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
+                                            onLongPress = { sheetNumber = item.call.number }
                                         )
                                     }
                                 }
@@ -414,7 +427,8 @@ fun HomeScreen(
                                             onMessage = { openSms(context, item.call.number) },
                                             onWhatsApp = { openWhatsApp(context, item.call.number) },
                                             onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
-                                            onAddContact = { createNewContact(context, item.call.number) }
+                                            onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
+                                            onLongPress = { sheetNumber = item.call.number }
                                         )
                                     }
                                 }
@@ -490,6 +504,9 @@ fun HomeScreen(
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 dialedNumber = ""
                             }
+                        },
+                        onNumberLongPress = {
+                            if (dialedNumber.isNotBlank()) sheetNumber = dialedNumber
                         }
                     )
 
@@ -546,7 +563,7 @@ fun HomeScreen(
                                     callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
                                 }
                             },
-                            containerColor = Color(0xFF2E7D32),
+                            containerColor = CallAnswerGreen,
                             contentColor = Color.White,
                             shape = CircleShape,
                             modifier = Modifier.size(66.dp),
@@ -557,7 +574,7 @@ fun HomeScreen(
 
                         if (dialedNumber.isNotBlank()) {
                             IconButton(
-                                onClick = { createNewContact(context, dialedNumber) },
+                                onClick = { navController.navigate(Screen.ContactEditor.createRoute(null, dialedNumber)) },
                                 modifier = Modifier.size(52.dp)
                             ) {
                                 Icon(
@@ -573,6 +590,44 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+
+        sheetNumber?.let { number ->
+            val sheetContact = contacts.firstOrNull { Utils.isSameNumber(it.number, number) }
+            NumberActionsSheet(
+                number = number,
+                contact = sheetContact,
+                contacts = contacts,
+                onDismiss = { sheetNumber = null },
+                onSaveNew = { newNumber ->
+                    sheetNumber = null
+                    navController.navigate(Screen.ContactEditor.createRoute(null, newNumber))
+                },
+                onAddToExisting = { existing, existingNumber ->
+                    sheetNumber = null
+                    navController.navigate(Screen.ContactEditor.createRoute(existing.id, existingNumber))
+                },
+                onToggleFavorite = {
+                    val target = sheetContact
+                    sheetNumber = null
+                    if (target != null) {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+                            contactsViewModel.toggleFavorite(target)
+                        } else {
+                            pendingFavorite = target
+                            favoriteWriteLauncher.launch(Manifest.permission.WRITE_CONTACTS)
+                        }
+                    }
+                },
+                onCall = {
+                    sheetNumber = null
+                    Utils.makeCall(context, number)
+                },
+                onOpenProfile = {
+                    sheetNumber = null
+                    navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(number)))
+                }
+            )
         }
     }
 }
@@ -753,7 +808,8 @@ private fun HomeCallItemRow(
     onMessage: () -> Unit,
     onWhatsApp: () -> Unit,
     onInfo: () -> Unit,
-    onAddContact: () -> Unit
+    onAddContact: () -> Unit,
+    onLongPress: () -> Unit = {}
 ) {
     val isMissed = call.type == CallLog.Calls.MISSED_TYPE
     val isIncoming = call.type == CallLog.Calls.INCOMING_TYPE
@@ -787,7 +843,7 @@ private fun HomeCallItemRow(
             .fillMaxWidth()
             .padding(horizontal = if (expanded) 8.dp else 0.dp, vertical = 1.dp)
             .background(backgroundColor, RoundedCornerShape(18.dp))
-            .clickable(onClick = onToggle)
+            .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
             .animateContentSize(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
             .padding(horizontal = if (expanded) 14.dp else 16.dp, vertical = 8.dp)
     ) {
@@ -935,7 +991,8 @@ private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp) {
 private fun HomeNumberDisplayRow(
     number: String,
     onDelete: () -> Unit,
-    onLongDelete: () -> Unit
+    onLongDelete: () -> Unit,
+    onNumberLongPress: () -> Unit = {}
 ) {
     val fontSize = when {
         number.length <= 6 -> 32.sp
@@ -967,7 +1024,8 @@ private fun HomeNumberDisplayRow(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(50.dp),
+                .height(50.dp)
+                .combinedClickable(onClick = {}, onLongClick = onNumberLongPress),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -1096,96 +1154,6 @@ private fun HomeSimSelector(sims: List<SimInfo>, selectedIndex: Int, onSelect: (
     }
 }
 
-@Composable
-private fun HomeDialpadGrid(onDigit: (String) -> Unit, onLongDigit: (String) -> Unit) {
-    val layout = listOf(
-        listOf("1" to "", "2" to "ABC", "3" to "DEF"),
-        listOf("4" to "GHI", "5" to "JKL", "6" to "MNO"),
-        listOf("7" to "PQRS", "8" to "TUV", "9" to "WXYZ"),
-        listOf("*" to "", "0" to "+", "#" to "")
-    )
-
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        layout.forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                row.forEach { (digit, letters) ->
-                    HomeDialpadButton(
-                        digit = digit,
-                        letters = letters,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onDigit(digit) },
-                        onLongClick = { onLongDigit(digit) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun HomeDialpadButton(
-    digit: String,
-    letters: String,
-    modifier: Modifier,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "btnScale"
-    )
-
-    val bgColor by animateColorAsState(
-        targetValue = if (isPressed) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.50f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f)
-        },
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "btnBg"
-    )
-
-    Column(
-        modifier = modifier
-            .height(50.dp)
-            .scale(scale)
-            .clip(RoundedCornerShape(16.dp))
-            .background(bgColor, RoundedCornerShape(16.dp))
-            .combinedClickable(
-                interactionSource = interactionSource,
-                indication = LocalIndication.current,
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = digit,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        if (letters.isNotEmpty()) {
-            Text(
-                text = letters,
-                fontSize = 8.5.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                letterSpacing = 1.2.sp
-            )
-        }
-    }
-}
-
 private fun formatDisplayNumber(raw: String): String {
     if (raw.isBlank()) return ""
     if (raw.contains("*") || raw.contains("#")) return raw
@@ -1270,22 +1238,6 @@ private fun openWhatsApp(context: Context, number: String) {
     } catch (_: Throwable) {
         try {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$clean")))
-        } catch (_: Throwable) { }
-    }
-}
-
-private fun createNewContact(context: Context, number: String) {
-    try {
-        context.startActivity(Intent(Intent.ACTION_INSERT).apply {
-            type = ContactsContract.RawContacts.CONTENT_TYPE
-            putExtra(ContactsContract.Intents.Insert.PHONE, number)
-        })
-    } catch (_: Throwable) {
-        try {
-            context.startActivity(Intent(Intent.ACTION_INSERT_OR_EDIT).apply {
-                type = ContactsContract.Contacts.CONTENT_ITEM_TYPE
-                putExtra(ContactsContract.Intents.Insert.PHONE, number)
-            })
         } catch (_: Throwable) { }
     }
 }

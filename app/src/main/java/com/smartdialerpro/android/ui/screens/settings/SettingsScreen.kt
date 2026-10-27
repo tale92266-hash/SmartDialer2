@@ -135,6 +135,21 @@ fun SettingsScreen(navController: NavController? = null) {
             }
         }
 
+        item { SectionTitle("Recordings") }
+        item {
+            SettingRow(
+                icon = Icons.Rounded.FiberManualRecord,
+                title = "Call recordings",
+                subtitle = "Play, share, or delete your recorded calls"
+            ) {
+                if (navController != null) {
+                    navController.navigate(Screen.Recordings.route)
+                } else {
+                    ToastHelper.show(context, "Navigation controller unavailable")
+                }
+            }
+        }
+
         item { SectionTitle("System & Application") }
         item {
             val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
@@ -190,7 +205,7 @@ fun SettingsScreen(navController: NavController? = null) {
             SettingRow(
                 icon = Icons.Rounded.Info,
                 title = "About SmartDialer",
-                subtitle = "Version 1.0 • Android 16 / Material Expressive"
+                subtitle = "Version 1.0"
             ) {}
         }
         item {

@@ -30,6 +30,7 @@ object CallManager {
     private val calls = LinkedHashMap<Call, MutableCallSnapshot>()
     private val durationJobs = mutableMapOf<Call, Job>()
     private val detailsJobs = mutableMapOf<Call, Job>()
+    private val autoRecordAttempted = mutableSetOf<Call>()
 
     var inCallService: AppInCallService? = null
         private set
@@ -76,11 +77,18 @@ object CallManager {
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
             var shouldStopRecording = false
+            var shouldAutoRecord = false
             synchronized(lock) {
                 val snapshot = calls[call] ?: return
                 snapshot.state = state
                 when (state) {
-                    Call.STATE_ACTIVE -> startDurationTickerLocked(call)
+                    Call.STATE_ACTIVE -> {
+                        startDurationTickerLocked(call)
+                        if (!autoRecordAttempted.contains(call)) {
+                            autoRecordAttempted.add(call)
+                            shouldAutoRecord = true
+                        }
+                    }
                     Call.STATE_HOLDING, Call.STATE_DISCONNECTING, Call.STATE_DISCONNECTED -> stopDurationTickerLocked(call)
                 }
                 val selected = when {
@@ -91,8 +99,10 @@ object CallManager {
                 }
                 publishLocked(selected)
                 shouldStopRecording = CallRecordingManager.isRecording.value && CallRecordingManager.recordingCall === call && (state == Call.STATE_DISCONNECTING || state == Call.STATE_DISCONNECTED)
+                if (shouldAutoRecord && currentCall !== call) shouldAutoRecord = false
             }
             if (shouldStopRecording) stopRecordingFor(call)
+            if (shouldAutoRecord) attemptAutoRecord(call)
             inCallService?.updateNotification()
         }
 
@@ -131,6 +141,7 @@ object CallManager {
     fun removeCall(call: Call) {
         if (CallRecordingManager.recordingCall === call) stopRecordingFor(call)
         synchronized(lock) {
+            autoRecordAttempted.remove(call)
             detailsJobs.remove(call)?.cancel()
             durationJobs.remove(call)?.cancel()
             try { call.unregisterCallback(callback) } catch (t: Throwable) { Log.w(TAG, "Callback unregister failed", t) }
@@ -311,6 +322,32 @@ object CallManager {
 
     private fun stopRecordingFor(call: Call) { val context = inCallService?.applicationContext ?: return; if (CallRecordingManager.recordingCall === call && CallRecordingManager.isRecording.value) { CallRecordingManager.stopIfActive(context); inCallService?.updateNotification() } }
 
+    /**
+     * Starts recording once per call when the user enabled auto-record.
+     * Never crashes when the microphone permission is missing: the
+     * existing recording status message is shown instead.
+     */
+    private fun attemptAutoRecord(call: Call) {
+        val context = inCallService?.applicationContext ?: return
+        try {
+            val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("auto_record_calls", false)) return
+            if (CallRecordingManager.isRecording.value) return
+            if (call.state != Call.STATE_ACTIVE) return
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(context, CallRecordingManager.statusMessage.value ?: "Microphone permission is required to record calls.", Toast.LENGTH_LONG).show()
+                return
+            }
+            val started = CallRecordingManager.start(context, call, callNumber.value, callerName.value)
+            if (!started) {
+                Toast.makeText(context, CallRecordingManager.statusMessage.value ?: "Call recording could not start.", Toast.LENGTH_LONG).show()
+            }
+            inCallService?.updateNotification()
+        } catch (t: Throwable) {
+            Log.e(TAG, "Auto-record failed", t)
+        }
+    }
+
     fun clear() {
         val service = inCallService
         service?.applicationContext?.let { if (CallRecordingManager.isRecording.value) CallRecordingManager.stopIfActive(it) }
@@ -319,7 +356,7 @@ object CallManager {
                 try { call.unregisterCallback(callback) } catch (t: Throwable) { Log.w(TAG, "Callback cleanup failed", t) }
                 durationJobs.remove(call)?.cancel(); detailsJobs.remove(call)?.cancel()
             }
-            calls.clear(); currentCall = null; publishLocked(null); inCallService = null
+            calls.clear(); currentCall = null; autoRecordAttempted.clear(); publishLocked(null); inCallService = null
         }
         service?.cancelNotification()
     }

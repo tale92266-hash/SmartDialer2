@@ -32,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartdialerpro.android.service.CallManager
+import com.smartdialerpro.android.ui.theme.CallAnswerGreen
+import com.smartdialerpro.android.ui.theme.CallEndRed
 
 @Composable
 fun ActiveCallControls(
@@ -70,7 +72,7 @@ fun ActiveCallControls(
                 Icons.Rounded.FiberManualRecord,
                 if (isRecording) "Recording" else "Record",
                 isRecording,
-                accent = Color(0xFFE53935),
+                accent = CallEndRed,
                 onClick = onRecord
             )
         }
@@ -89,8 +91,8 @@ fun IncomingCallControls(onDecline: () -> Unit, onAnswer: () -> Unit) {
         Modifier.fillMaxWidth().padding(horizontal = 18.dp),
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        CallActionButton(Icons.Rounded.CallEnd, "Decline", Color(0xFFE53935), onDecline)
-        CallActionButton(Icons.Rounded.Call, "Answer", Color(0xFF36B37E), onAnswer)
+        CallActionButton(Icons.Rounded.CallEnd, "Decline", CallEndRed, onDecline)
+        CallActionButton(Icons.Rounded.Call, "Answer", CallAnswerGreen, onAnswer)
     }
 }
 
@@ -98,7 +100,7 @@ fun IncomingCallControls(onDecline: () -> Unit, onAnswer: () -> Unit) {
 fun EndCallButton() {
     FloatingActionButton(
         onClick = { CallManager.endCall() },
-        containerColor = Color(0xFFE53935),
+        containerColor = CallEndRed,
         contentColor = Color.White,
         shape = CircleShape,
         modifier = Modifier

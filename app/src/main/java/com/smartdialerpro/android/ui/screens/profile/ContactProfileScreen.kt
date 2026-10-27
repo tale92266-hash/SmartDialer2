@@ -54,6 +54,7 @@ import com.smartdialerpro.android.R
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
 import com.smartdialerpro.android.repository.CallLogRepository
+import com.smartdialerpro.android.repository.ContactsRepository
 import com.smartdialerpro.android.ui.screens.contacts.ContactAvatar
 import com.smartdialerpro.android.util.Utils
 import kotlinx.coroutines.Dispatchers
@@ -77,7 +78,13 @@ private data class ProfileData(
 )
 
 @Composable
-fun ContactProfileScreen(number: String, onBack: () -> Unit) {
+fun ContactProfileScreen(
+    number: String,
+    onBack: () -> Unit,
+    onOpenEditor: ((String?, String) -> Unit)? = null,
+    onOpenBlocked: (() -> Unit)? = null,
+    onContactsChanged: () -> Unit = {}
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var profile by remember(number) { mutableStateOf(ProfileData(null, null, null, false, emptyList())) }
@@ -91,6 +98,8 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
     var selectedSim by remember { mutableStateOf<SimInfo?>(null) }
     var userManuallySelectedSim by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var refreshKey by remember { mutableStateOf(0) }
 
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) {
@@ -114,6 +123,7 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
     fun reload() {
         contactsPermission = hasPermission(context, Manifest.permission.READ_CONTACTS)
         callLogPermission = hasPermission(context, Manifest.permission.READ_CALL_LOG)
+        refreshKey++
     }
 
     DisposableEffect(lifecycleOwner, number) {
@@ -128,7 +138,7 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
         availableSims = withContext(Dispatchers.IO) { queryPhoneAccounts(context) }
     }
 
-    LaunchedEffect(number, contactsPermission) {
+    LaunchedEffect(number, contactsPermission, refreshKey) {
         if (contactsPermission) {
             profile = withContext(Dispatchers.IO) { findContactAccounts(context, number) }
         } else {
@@ -136,7 +146,7 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(number, callLogPermission) {
+    LaunchedEffect(number, callLogPermission, refreshKey) {
         if (!callLogPermission) {
             history = emptyList()
             return@LaunchedEffect
@@ -213,7 +223,11 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
                             leadingIcon = { Icon(Icons.Rounded.Edit, null) },
                             onClick = {
                                 menuExpanded = false
-                                openEditContact(context, profile.contactId)
+                                if (onOpenEditor != null) {
+                                    onOpenEditor(profile.contactId, number)
+                                } else {
+                                    openEditContact(context, profile.contactId)
+                                }
                             }
                         )
                         DropdownMenuItem(
@@ -232,13 +246,25 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
                                 shareContact(context, profile.name, number)
                             }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Delete contact") },
+                            leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                menuExpanded = false
+                                showDeleteDialog = true
+                            }
+                        )
                     } else {
                         DropdownMenuItem(
                             text = { Text("Create new contact") },
                             leadingIcon = { Icon(Icons.Rounded.PersonAdd, null) },
                             onClick = {
                                 menuExpanded = false
-                                createNewContact(context, number)
+                                if (onOpenEditor != null) {
+                                    onOpenEditor(null, number)
+                                } else {
+                                    createNewContact(context, number)
+                                }
                             }
                         )
                         DropdownMenuItem(
@@ -246,7 +272,11 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
                             leadingIcon = { Icon(Icons.Rounded.GroupAdd, null) },
                             onClick = {
                                 menuExpanded = false
-                                addToExistingContact(context, number)
+                                if (onOpenEditor != null) {
+                                    onOpenEditor(null, number)
+                                } else {
+                                    addToExistingContact(context, number)
+                                }
                             }
                         )
                         DropdownMenuItem(
@@ -271,11 +301,52 @@ fun ContactProfileScreen(number: String, onBack: () -> Unit) {
                         leadingIcon = { Icon(Icons.Rounded.Block, null, tint = MaterialTheme.colorScheme.error) },
                         onClick = {
                             menuExpanded = false
-                            openBlockedNumbers(context)
+                            if (onOpenBlocked != null) {
+                                onOpenBlocked()
+                            } else {
+                                openBlockedNumbers(context)
+                            }
                         }
                     )
                 }
             }
+        }
+
+        if (showDeleteDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteDialog = false },
+                title = { Text("Delete contact?") },
+                text = { Text("This contact will be permanently deleted from your contacts.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteDialog = false
+                            val contactId = profile.contactId
+                            if (contactId != null) {
+                                coroutineScope.launch {
+                                    val deleted = withContext(Dispatchers.IO) {
+                                        ContactsRepository(context).deleteContact(contactId)
+                                    }
+                                    if (deleted) {
+                                        Toast.makeText(context, "Contact deleted", Toast.LENGTH_SHORT).show()
+                                        onContactsChanged()
+                                        onBack()
+                                    } else {
+                                        Toast.makeText(context, "Could not delete contact", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
 
         LazyColumn(
