@@ -223,7 +223,6 @@ class CallLogRepository(private val context: Context) {
         if (accountId.isNullOrBlank() && account == null) return null
         val matchingSub = subscriptions.firstOrNull { sub ->
             accountId == sub.subscriptionId.toString() ||
-                (!accountId.isNullOrBlank() && accountId.contains(sub.subscriptionId.toString(), ignoreCase = true)) ||
                 (!account?.address?.schemeSpecificPart.isNullOrBlank() && !sub.number.isNullOrBlank() &&
                     PhoneNumberUtils.compare(account!!.address.schemeSpecificPart, sub.number))
         }

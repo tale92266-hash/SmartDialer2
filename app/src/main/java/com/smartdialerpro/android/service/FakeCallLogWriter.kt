@@ -180,15 +180,18 @@ object FakeCallLogWriter {
             val extrasSlotId = account.extras?.getInt("slot_id", -1) ?: -1
             if (extrasSlot == forceSimSlot || extrasSlotId == forceSimSlot) return handle
             if (targetSub != null) {
-                if (handle.id == targetSub.subscriptionId.toString() ||
-                    handle.id.contains(targetSub.subscriptionId.toString(), ignoreCase = true)
-                ) return handle
+                // Exact id match only: subscription ids are 1-2 digit
+                // numbers, and a contains() check false-matches almost
+                // any long handle id (e.g. an ICCID).
+                if (handle.id == targetSub.subscriptionId.toString()) return handle
                 val addr = account.address?.schemeSpecificPart
                 if (!addr.isNullOrBlank() && !targetSub.number.isNullOrBlank() &&
                     PhoneNumberUtils.compare(addr, targetSub.number)
                 ) return handle
             }
         }
+        // No exact match: fall back to list position, exactly like the
+        // original Dialar code did (handles[forceSimSlot]).
         return if (forceSimSlot in handles.indices) handles[forceSimSlot] else handles.firstOrNull()
     }
 

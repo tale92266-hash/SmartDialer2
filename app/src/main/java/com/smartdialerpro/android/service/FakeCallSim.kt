@@ -5,8 +5,9 @@ import android.telephony.SubscriptionManager
 
 /**
  * Which SIM a Magic (fake) call goes "from": the SIM the user has
- * selected in the dialer (persisted slot in dialer_preferences), falling
- * back to the first active subscription. Every entry point resolves
+ * selected in the dialer (persisted slot in dialer_preferences).
+ * With no explicit selection, SIM 2 (slot 1) is the default when
+ * present, else the first active subscription. Every entry point resolves
  * through here so the fake call, its header chip and its call-log row
  * all agree on the same SIM.
  */
@@ -19,7 +20,9 @@ object FakeCallSim {
         if (persisted >= 0) {
             if (subs.isEmpty() || subs.any { it.simSlotIndex == persisted }) return persisted
         }
-        return subs.firstOrNull()?.simSlotIndex ?: 0
+        return subs.firstOrNull { it.simSlotIndex == 1 }?.simSlotIndex
+            ?: subs.firstOrNull()?.simSlotIndex
+            ?: 0
     }
 
     fun simLabelForSlot(context: Context, slot: Int): String {

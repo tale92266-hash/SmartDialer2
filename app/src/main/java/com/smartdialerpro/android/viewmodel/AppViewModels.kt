@@ -381,7 +381,6 @@ class DialerViewModel(
             val account = try { telecom.getPhoneAccount(handle) } catch (_: Throwable) { null } ?: return@mapNotNull null
             val subscription = subscriptions.firstOrNull { sub ->
                 handle.id == sub.subscriptionId.toString() ||
-                    handle.id.contains(sub.subscriptionId.toString(), ignoreCase = true) ||
                     account.address?.schemeSpecificPart == sub.number
             }
             val slot = subscription?.simSlotIndex ?: inferSlotFromAccount(account)
