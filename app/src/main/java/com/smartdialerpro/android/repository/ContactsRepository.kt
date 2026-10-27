@@ -348,6 +348,8 @@ class ContactsRepository(private val context: Context) {
         }
         return photo
     }
+
+    private fun queryContactDataValues(contactId: String, mimeType: String, column: String): List<String> {
         val values = ArrayList<String>()
         context.contentResolver.query(
             ContactsContract.Data.CONTENT_URI,
