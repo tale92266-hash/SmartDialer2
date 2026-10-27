@@ -285,7 +285,8 @@ fun HomeScreen(
                     topSearchQuery = it
                     if (dialerOpen && it.isNotBlank()) dialerOpen = false
                 },
-                onClear = { topSearchQuery = "" }
+                onClear = { topSearchQuery = ""; dialedNumber = "" },
+                showClear = isSearchMode
             )
 
             if (!isSearchMode) {
@@ -636,7 +637,8 @@ fun HomeScreen(
 private fun HomeLiveSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    showClear: Boolean = false
 ) {
     val context = LocalContext.current
     val voiceLauncher = rememberLauncherForActivityResult(
@@ -693,11 +695,11 @@ private fun HomeLiveSearchBar(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear, modifier = Modifier.size(36.dp)) {
+            if (query.isNotEmpty() || showClear) {
+                IconButton(onClick = onClear, modifier = Modifier.size(40.dp)) {
                     Icon(
                         Icons.Rounded.Close,
-                        contentDescription = "Clear search",
+                        contentDescription = "Exit search",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
@@ -846,10 +848,10 @@ private fun HomeCallItemRow(
             .background(backgroundColor, RoundedCornerShape(18.dp))
             .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
             .animateContentSize(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
-            .padding(horizontal = if (expanded) 14.dp else 16.dp, vertical = 8.dp)
+            .padding(horizontal = if (expanded) 14.dp else 16.dp, vertical = 12.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            HomeCachedAvatar(displayName, call.photoUri, 46.dp)
+            HomeCachedAvatar(displayName, call.photoUri, 48.dp)
 
             Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -859,7 +861,9 @@ private fun HomeCallItemRow(
                         fontWeight = if (isMissed) FontWeight.Bold else FontWeight.SemiBold,
                         color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        softWrap = false,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     if (call.callCount > 1) {
                         Spacer(Modifier.width(6.dp))
@@ -867,7 +871,9 @@ private fun HomeCallItemRow(
                             text = "(${call.callCount})",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                            color = if (isMissed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -878,17 +884,39 @@ private fun HomeCallItemRow(
                     Icon(directionIcon, null, tint = iconTint, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(
-                        call.number,
+                        text = call.number,
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        softWrap = false,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     if (call.duration > 0) {
-                        Text(" • ${formatSeconds(call.duration)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = " • ${formatSeconds(call.duration)}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                     call.simSlot?.let { slot ->
-                        Text(" • SIM $slot", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(6.dp))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = "SIM $slot",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                maxLines = 1,
+                                softWrap = false,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -898,19 +926,31 @@ private fun HomeCallItemRow(
                     Text(
                         text = Utils.formatCallDate(call.date),
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 } else {
                     Text(
                         text = "Contact",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
                 Spacer(Modifier.height(4.dp))
-                IconButton(onClick = onCall, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Rounded.Call, "Direct call", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+                IconButton(onClick = onCall, modifier = Modifier.size(40.dp)) {
+                    Box(
+                        Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.Call, "Direct call", tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(20.dp))
+                    }
                 }
             }
         }

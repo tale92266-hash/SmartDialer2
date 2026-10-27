@@ -69,7 +69,7 @@ fun UniversalSearchScreen(contactsViewModel: ContactsViewModel, recentsViewModel
 
     LaunchedEffect(Unit) { contactsViewModel.loadContacts(force = true); recentsViewModel.loadRecents(force = true) }
     DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) { contactsViewModel.loadContacts(force = true); recentsViewModel.loadRecents(force = true) } }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) { contactsViewModel.loadContacts(force = false); recentsViewModel.loadRecents(force = false) } }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
@@ -90,7 +90,8 @@ fun UniversalSearchScreen(contactsViewModel: ContactsViewModel, recentsViewModel
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 14.dp, vertical = 3.dp)) {
                     Icon(Icons.Rounded.Contacts, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(21.dp)); Spacer(Modifier.width(9.dp))
                     BasicSearchField(query = query, onQueryChange = { query = it }, modifier = Modifier.weight(1f))
-                    if (query.isNotEmpty()) IconButton(onClick = { query = "" }, modifier = Modifier.size(34.dp)) { Icon(Icons.Rounded.Close, "Clear", modifier = Modifier.size(19.dp)) }
+                    if (query.isNotEmpty()) IconButton(onClick = { query = "" }, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.Close, "Clear search", modifier = Modifier.size(19.dp)) }
+                    if (query.isEmpty()) IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) { Icon(Icons.Rounded.Close, "Exit search", modifier = Modifier.size(19.dp)) }
                 }
             }
             TextButton(onClick = onClose, modifier = Modifier.padding(start = 4.dp)) { Text("Cancel") }
@@ -173,7 +174,7 @@ private fun SearchSectionTitle(title: String, icon: ImageVector) {
 private fun ContactSearchRow(contact: Contact, onCall: () -> Unit, onOpen: () -> Unit, onLongPress: () -> Unit = {}) {
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         ContactAvatar(contact.name.ifBlank { contact.number }, contact.photoUri, 46.dp)
-        Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text(contact.name.ifBlank { contact.number }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis); Text(contact.number, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) }
+        Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text(contact.name.ifBlank { contact.number }, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false); Text(contact.number, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false) }
         IconButton(onClick = onCall) { Icon(Icons.Rounded.Call, "Call", tint = MaterialTheme.colorScheme.primary) }
     }
 }
@@ -185,7 +186,7 @@ private fun RecentSearchRow(call: RecentCall, onCall: () -> Unit, onOpen: () -> 
     val typeIcon = when (call.type) { CallLog.Calls.MISSED_TYPE -> Icons.Rounded.CallMissed; CallLog.Calls.INCOMING_TYPE -> Icons.Rounded.CallReceived; CallLog.Calls.OUTGOING_TYPE -> Icons.Rounded.CallMade; else -> Icons.Rounded.Call }
     Row(Modifier.fillMaxWidth().combinedClickable(onClick = onOpen, onLongClick = onLongPress).padding(horizontal = 20.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         ContactAvatar(displayName, call.photoUri, 46.dp)
-        Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text(displayName, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis); Row(verticalAlignment = Alignment.CenterVertically) { Icon(typeIcon, null, modifier = Modifier.size(14.dp), tint = if (call.type == CallLog.Calls.MISSED_TYPE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(5.dp)); Text(call.number, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1) } }
+        Column(Modifier.weight(1f).padding(horizontal = 13.dp)) { Text(displayName, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false); Row(verticalAlignment = Alignment.CenterVertically) { Icon(typeIcon, null, modifier = Modifier.size(14.dp), tint = if (call.type == CallLog.Calls.MISSED_TYPE) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant); Spacer(Modifier.width(5.dp)); Text(call.number, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false) } }
         IconButton(onClick = onCall) { Icon(Icons.Rounded.Call, "Call", tint = MaterialTheme.colorScheme.primary) }
     }
 }

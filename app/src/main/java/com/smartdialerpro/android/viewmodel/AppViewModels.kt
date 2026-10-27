@@ -74,6 +74,7 @@ class RecentsViewModel(private val repository: CallLogRepository) : ViewModel() 
     val filter = _filter.asStateFlow()
 
     private var isFetching = false
+    private var lastLoadAtMs = 0L
     private var callLogObserver: ContentObserver? = null
 
     init {
@@ -101,6 +102,11 @@ class RecentsViewModel(private val repository: CallLogRepository) : ViewModel() 
 
     fun loadRecents(force: Boolean = false) {
         if (isFetching && !force) return
+        if (!force) {
+            val now = System.currentTimeMillis()
+            if (now - lastLoadAtMs < 3000L) return
+            lastLoadAtMs = now
+        }
         isFetching = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -184,7 +190,7 @@ class DialerViewModel(
         viewModelScope.launch(Dispatchers.Default) {
             searchFlow
                 .distinctUntilChanged()
-                .debounce(15L)
+                .debounce(150L)
                 .collect { query ->
                     executeSearch(query)
                 }
