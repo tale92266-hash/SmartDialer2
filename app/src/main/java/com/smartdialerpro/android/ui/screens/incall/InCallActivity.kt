@@ -120,6 +120,12 @@ fun PremiumInCallScreen(
     var lastEndedName by remember { mutableStateOf("") }
     var lastEndedNumber by remember { mutableStateOf("") }
     var showEndedOverlay by remember { mutableStateOf(false) }
+    var dtmfDigits by remember { mutableStateOf("") }
+
+    // A fresh call starts with an empty keypad input.
+    LaunchedEffect(callState) {
+        if (callState == Call.STATE_DISCONNECTED) dtmfDigits = ""
+    }
     var wasLive by remember { mutableStateOf(false) }
 
     val recordPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -235,7 +241,16 @@ fun PremiumInCallScreen(
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 when {
                     isRinging -> IncomingCallControls({ CallManager.reject() }, { CallManager.answer() })
-                    keypadOpen -> InCallDtmfPad { onKeypadOpenChange(false) }
+                    keypadOpen -> InCallDtmfPad(
+                        digits = dtmfDigits,
+                        onDigit = { digit ->
+                            dtmfDigits += digit
+                            CallManager.playDtmf(digit)
+                            CallManager.stopDtmf()
+                        },
+                        onBackspace = { dtmfDigits = dtmfDigits.dropLast(1) },
+                        onClose = { onKeypadOpenChange(false) }
+                    )
                     showActiveControls -> ActiveCallControls(
                         context = context,
                         isMuted = isMuted,

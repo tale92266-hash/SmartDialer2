@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.smartdialerpro.android.ui.components.CompactTopBar
 import com.smartdialerpro.android.ui.navigation.Screen
 
 private const val PREFS = "app_prefs"
@@ -142,16 +143,7 @@ private fun SettingsSubScreenScaffold(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(title, fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
+        topBar = { CompactTopBar(title = title, onBack = onBack) }
     ) { innerPadding ->
         Column(
             modifier = Modifier

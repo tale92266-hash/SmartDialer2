@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.smartdialerpro.android.repository.ContactsRepository
 import com.smartdialerpro.android.repository.SaveTarget
+import com.smartdialerpro.android.ui.components.CompactTopBar
 import com.smartdialerpro.android.util.Utils
 import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
@@ -280,30 +281,27 @@ fun ContactEditorScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(if (contactId != null) "Edit contact" else "Create contact") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Cancel")
+            CompactTopBar(
+                title = if (contactId != null) "Edit contact" else "Create contact",
+                onBack = onBack,
+                backIcon = Icons.Rounded.Close,
+                backDescription = "Cancel"
+            ) {
+                TextButton(
+                    onClick = { saveContact() },
+                    enabled = !isSaving && name.isNotBlank() && phone1.isNotBlank(),
+                    modifier = Modifier.padding(end = 4.dp)
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(6.dp))
                     }
-                },
-                actions = {
-                    TextButton(
-                        onClick = { saveContact() },
-                        enabled = !isSaving && name.isNotBlank() && phone1.isNotBlank(),
-                        modifier = Modifier.padding(end = 4.dp)
-                    ) {
-                        if (isSaving) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.width(6.dp))
-                        }
-                        Text("Save", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    }
+                    Text("Save", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
-            )
+            }
         }
     ) { innerPadding ->
         if (!detailsLoaded) {

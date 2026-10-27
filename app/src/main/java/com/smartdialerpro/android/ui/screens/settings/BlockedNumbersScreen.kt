@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import com.smartdialerpro.android.ui.components.CompactTopBar
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -82,31 +83,15 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Blocked numbers", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "System-wide blocked callers",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { loadData() }) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
-            )
+            CompactTopBar(
+                title = "Blocked numbers",
+                subtitle = "System-wide blocked callers",
+                onBack = onBack
+            ) {
+                IconButton(onClick = { loadData() }) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
+                }
+            }
         },
         floatingActionButton = {
             if (isDefaultDialer) {

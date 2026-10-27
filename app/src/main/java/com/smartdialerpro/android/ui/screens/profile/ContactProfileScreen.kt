@@ -443,7 +443,7 @@ fun ContactProfileScreen(
                                             if (sim.slotIndex >= 0) {
                                                 SimSlotIcon(
                                                     slot = sim.slotIndex + 1,
-                                                    size = 15.dp,
+                                                    size = 13.dp,
                                                     color = contentColorAnimated
                                                 )
                                             } else {
@@ -642,7 +642,7 @@ private fun ProfileCallHistoryRow(call: RecentCall) {
                 Text(if (call.duration > 0) formatDuration(call.duration) else "—", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 call.simSlot?.let {
                     Spacer(Modifier.height(3.dp))
-                    SimSlotIcon(slot = it, size = 16.dp)
+                    SimSlotIcon(slot = it, size = 13.dp)
                 }
             }
         }

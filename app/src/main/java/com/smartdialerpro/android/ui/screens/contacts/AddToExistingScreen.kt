@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartdialerpro.android.data.Contact
+import com.smartdialerpro.android.ui.components.CompactTopBar
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
 
 /**
@@ -71,13 +72,9 @@ fun AddToExistingScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Add to existing contact", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                }
+            CompactTopBar(
+                title = "Add to existing contact",
+                onBack = onBack
             )
         }
     ) { innerPadding ->

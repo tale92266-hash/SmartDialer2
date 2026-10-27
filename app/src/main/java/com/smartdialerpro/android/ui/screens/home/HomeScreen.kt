@@ -952,7 +952,7 @@ private fun HomeCallItemRow(
                     }
                     call.simSlot?.let { slot ->
                         Spacer(Modifier.width(6.dp))
-                        SimSlotIcon(slot = slot, size = 16.dp)
+                        SimSlotIcon(slot = slot, size = 13.dp)
                     }
                 }
             }
@@ -1218,7 +1218,7 @@ private fun HomeSimSelector(sims: List<SimInfo>, selectedIndex: Int, onSelect: (
                         if (sim.slotIndex >= 0) {
                             SimSlotIcon(
                                 slot = sim.slotIndex + 1,
-                                size = 15.dp,
+                                size = 13.dp,
                                 color = contentColorAnimated
                             )
                         } else {

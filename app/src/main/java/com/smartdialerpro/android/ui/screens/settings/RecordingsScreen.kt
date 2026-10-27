@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smartdialerpro.android.ui.components.CompactTopBar
 import com.smartdialerpro.android.ui.components.EmptyStateView
 import com.smartdialerpro.android.util.Utils
 import kotlinx.coroutines.Dispatchers
@@ -181,19 +182,14 @@ fun RecordingsScreen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Call recordings", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { loadRecordings() }) {
-                        Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
-                    }
+            CompactTopBar(
+                title = "Call recordings",
+                onBack = onBack
+            ) {
+                IconButton(onClick = { loadRecordings() }) {
+                    Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
                 }
-            )
+            }
         }
     ) { innerPadding ->
         Box(
