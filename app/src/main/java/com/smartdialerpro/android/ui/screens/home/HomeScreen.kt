@@ -46,6 +46,7 @@ import androidx.compose.material.icons.automirrored.rounded.Backspace
 import androidx.compose.material.icons.automirrored.rounded.Message
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import com.smartdialerpro.android.ui.components.SimBadge
 import com.smartdialerpro.android.ui.components.SimSlotIcon
 import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
 import com.smartdialerpro.android.ui.components.launchWhatsApp
@@ -1002,7 +1003,16 @@ private fun HomeCallItemRow(
                     }
                     call.simSlot?.let { slot ->
                         Spacer(Modifier.width(6.dp))
-                        SimSlotIcon(slot = slot, size = 11.dp)
+                        SimBadge(
+                            slot = slot,
+                            label = "SIM $slot",
+                            glyphSize = 11.dp,
+                            textSize = 11.sp,
+                            horizontalPadding = 8.dp,
+                            verticalPadding = 3.dp,
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            contentColor = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }

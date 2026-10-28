@@ -22,6 +22,10 @@ class AppInCallService : InCallService() {
     companion object {
         private const val TAG = "AppInCallService"
         private const val CHANNEL_ID = "ongoing_call_channel"
+        /** Low-importance channel used while the in-call screen is in the
+         * foreground: the notification sits quietly in the shade instead
+         * of popping over the call screen as a heads-up. */
+        private const val QUIET_CHANNEL_ID = "ongoing_call_channel_quiet"
         private const val NOTIFICATION_ID = 1001
         private const val LEGACY_INCOMING_NOTIFICATION_ID = 1002
     }
@@ -161,6 +165,12 @@ class AppInCallService : InCallService() {
             .build()
     }
 
+    /** Channel + priority for the current moment: quiet while the user
+     * is already looking at the call screen, alerting otherwise so an
+     * incoming call can still wake the phone from another app. */
+    private fun activeChannelId() =
+        if (CallManager.inCallUiForeground) QUIET_CHANNEL_ID else CHANNEL_ID
+
     private fun buildOngoingNotification(): Notification {
         val state = CallManager.callState.value
         val name = CallManager.callerName.value?.takeIf { it.isNotBlank() }
@@ -182,7 +192,7 @@ class AppInCallService : InCallService() {
         if (recording) secondary = (if (secondary.isNotBlank()) "$secondary • " else "") + "Recording"
         if (!sim.isNullOrBlank()) secondary = (if (secondary.isNotBlank()) "$secondary • " else "") + sim
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, activeChannelId())
             .setSmallIcon(R.drawable.ic_call)
             .setContentTitle(title)
             .setContentText(primary)
@@ -192,7 +202,7 @@ class AppInCallService : InCallService() {
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (CallManager.inCallUiForeground) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setShowWhen(true)
 
@@ -225,7 +235,7 @@ class AppInCallService : InCallService() {
             }
         }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, activeChannelId())
             .setSmallIcon(R.drawable.ic_call)
             .setContentTitle("Incoming call")
             .setContentText(primary)
@@ -235,9 +245,16 @@ class AppInCallService : InCallService() {
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(if (CallManager.inCallUiForeground) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(openCallPendingIntent(5), true)
+        // The full-screen intent is what makes the call screen open over
+        // the lock screen — and what pops the heads-up over an already
+        // visible call screen. Only attach it while the call screen is
+        // not already in the foreground.
+        if (!CallManager.inCallUiForeground) {
+            builder.setFullScreenIntent(openCallPendingIntent(5), true)
+        }
+        return builder
             .setStyle(
                 NotificationCompat.CallStyle.forIncomingCall(
                     callPerson(),
@@ -250,9 +267,18 @@ class AppInCallService : InCallService() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+            val manager = getSystemService(NotificationManager::class.java)
+            manager?.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "Ongoing Calls", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "Incoming and ongoing call controls"
+                    setSound(null, null)
+                    setShowBadge(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+            )
+            manager?.createNotificationChannel(
+                NotificationChannel(QUIET_CHANNEL_ID, "Call in progress", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Ongoing call controls while the call screen is open"
                     setSound(null, null)
                     setShowBadge(false)
                     lockscreenVisibility = Notification.VISIBILITY_PUBLIC

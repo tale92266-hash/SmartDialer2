@@ -36,6 +36,12 @@ object CallManager {
 
     var inCallService: AppInCallService? = null
         private set
+
+    /** True while the in-call activity is in the foreground. The call
+     * notification stays quiet (no heads-up) while the user is already
+     * looking at the call screen, and alerts normally otherwise. */
+    @Volatile
+    var inCallUiForeground: Boolean = false
     var currentCall: Call? = null
         private set
 

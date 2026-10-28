@@ -91,37 +91,36 @@ fun InCallHeader(
         }
         if (!simInfo.isNullOrBlank()) {
             Spacer(Modifier.height(12.dp))
-            Row(
-                modifier = Modifier
-                    .background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = .20f),
-                        RoundedCornerShape(50.dp)
-                    )
-                    .padding(horizontal = 16.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
-            ) {
-                if (simSlot != null) {
-                    com.smartdialerpro.android.ui.components.SimSlotIcon(
-                        slot = simSlot,
-                        modifier = Modifier.padding(end = 7.dp),
-                        size = 13.dp,
-                        color = Color.White
-                    )
-                } else {
+            if (simSlot != null) {
+                com.smartdialerpro.android.ui.components.SimBadge(
+                    slot = simSlot,
+                    label = simInfo,
+                    glyphColor = Color.White
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .background(
+                            MaterialTheme.colorScheme.primary.copy(alpha = .20f),
+                            RoundedCornerShape(50.dp)
+                        )
+                        .padding(horizontal = 16.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
                     Icon(
                         imageVector = Icons.Rounded.SimCard,
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.padding(end = 7.dp)
                     )
+                    Text(
+                        text = simInfo,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
                 }
-                Text(
-                    text = simInfo,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color.White
-                )
             }
         }
     }

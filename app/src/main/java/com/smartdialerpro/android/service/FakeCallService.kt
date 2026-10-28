@@ -28,6 +28,9 @@ class FakeCallService : Service() {
         private const val TAG = "FakeCallService"
         private const val NOTIFICATION_ID = 2002
         private const val CHANNEL_ID = "fake_ongoing_call_channel"
+        /** Low-importance channel used while the fake-call screen is in
+         * the foreground: no heads-up over the call screen. */
+        private const val QUIET_CHANNEL_ID = "fake_ongoing_call_channel_quiet"
 
         const val ACTION_START = "com.smartdialerpro.ACTION_START_FAKE_SERVICE"
         const val ACTION_UPDATE = "com.smartdialerpro.ACTION_UPDATE_FAKE_SERVICE"
@@ -81,11 +84,17 @@ class FakeCallService : Service() {
     private fun createNotificationChannel() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val manager = getSystemService(NotificationManager::class.java)
                 val channel = NotificationChannel(CHANNEL_ID, "Ongoing fake calls", NotificationManager.IMPORTANCE_HIGH)
                 channel.setSound(null, null)
                 channel.enableLights(false)
                 channel.enableVibration(false)
-                getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+                manager?.createNotificationChannel(channel)
+                val quiet = NotificationChannel(QUIET_CHANNEL_ID, "Fake call in progress", NotificationManager.IMPORTANCE_LOW)
+                quiet.setSound(null, null)
+                quiet.enableLights(false)
+                quiet.enableVibration(false)
+                manager?.createNotificationChannel(quiet)
             }
         } catch (_: Throwable) {
         }
@@ -143,7 +152,8 @@ class FakeCallService : Service() {
         val sim = FakeCallSession.simLabel
         if (!sim.isNullOrBlank()) secondary = (if (secondary.isNotBlank()) "$secondary • " else "") + sim
 
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+        val channelId = if (FakeCallSession.uiForeground) QUIET_CHANNEL_ID else CHANNEL_ID
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_call)
             .setContentTitle(title)
             .setContentText(primary)
@@ -153,7 +163,7 @@ class FakeCallService : Service() {
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (FakeCallSession.uiForeground) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setShowWhen(true)
 

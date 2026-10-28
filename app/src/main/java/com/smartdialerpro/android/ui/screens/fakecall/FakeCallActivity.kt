@@ -202,6 +202,18 @@ class FakeCallActivity : ComponentActivity() {
         // ACTION_RETURN_TO_CALL just brings this singleTop activity forward.
     }
 
+    override fun onResume() {
+        super.onResume()
+        FakeCallSession.uiForeground = true
+        FakeCallService.updateState(this)
+    }
+
+    override fun onPause() {
+        FakeCallSession.uiForeground = false
+        FakeCallService.updateState(this)
+        super.onPause()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         FakeCallActionHandler.onEnd = null

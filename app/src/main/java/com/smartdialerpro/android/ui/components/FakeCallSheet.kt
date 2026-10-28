@@ -109,19 +109,15 @@ fun FakeCallSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            SimBadge(
+                slot = simSlot + 1,
+                label = "Fake call from $simLabel",
+                glyphSize = 13.dp,
+                textSize = 13.sp,
+                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                contentColor = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 8.dp, bottom = 18.dp)
-            ) {
-                SimSlotIcon(slot = simSlot + 1, size = 13.dp)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "Fake call from $simLabel",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
+            )
 
             // Highlighted quick option: instant start, fixed 120 seconds.
             Row(

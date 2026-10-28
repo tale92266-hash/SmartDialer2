@@ -87,11 +87,19 @@ class InCallActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        CallManager.inCallUiForeground = true
+        CallManager.inCallService?.updateNotification()
         // Stale-call watchdog: returning to this activity with no tracked
         // call and no live state means there is nothing to show.
         if (CallManager.trackedCalls.value.isEmpty() && CallManager.callState.value == Call.STATE_DISCONNECTED) {
             finishAndRemoveTask()
         }
+    }
+
+    override fun onPause() {
+        CallManager.inCallUiForeground = false
+        CallManager.inCallService?.updateNotification()
+        super.onPause()
     }
 }
 

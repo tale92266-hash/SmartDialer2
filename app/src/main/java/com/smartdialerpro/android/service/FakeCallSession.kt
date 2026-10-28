@@ -12,6 +12,10 @@ import kotlinx.coroutines.flow.StateFlow
  */
 object FakeCallSession {
     @Volatile var isActive: Boolean = false
+    /** True while the fake-call activity is in the foreground: its
+     * notification stays quiet (no heads-up) while the call screen
+     * is already showing. */
+    @Volatile var uiForeground: Boolean = false
     @Volatile var name: String = ""
     @Volatile var number: String = ""
     @Volatile var simSlot: Int = 0
