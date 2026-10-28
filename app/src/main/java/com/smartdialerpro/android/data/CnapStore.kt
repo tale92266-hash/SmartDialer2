@@ -19,9 +19,12 @@ import android.util.Log
  * same entry). The store is a plain SQLiteOpenHelper on purpose:
  * this app has zero external dependencies and Room would add one.
  *
- * Initialized once from MainActivity with the application context;
- * every method degrades to a no-op/empty result before init so a
- * missed init can never crash a call.
+ * Initialized once from SmartDialerApplication with the application
+ * context, so it is ready in every process start — including a
+ * telecom cold start where MainActivity never runs. Call sites that
+ * hold a Context should still call [ensureInit] first as a
+ * belt-and-braces guard; every method degrades to a no-op/empty
+ * result before init so a missed init can never crash a call.
  */
 object CnapStore {
     private const val TAG = "CnapStore"
@@ -41,6 +44,9 @@ object CnapStore {
             }
         }
     }
+
+    /** Idempotent guard for call sites that hold a Context. */
+    fun ensureInit(context: Context) = init(context)
 
     /** Normalized lookup key: last 10 digits when available. */
     fun keyFor(number: String): String {

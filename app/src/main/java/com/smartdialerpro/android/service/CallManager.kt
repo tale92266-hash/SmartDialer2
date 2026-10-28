@@ -295,6 +295,7 @@ object CallManager {
                         // A contact name wins; the CNAP name fills in
                         // for unknown numbers and stays as the subtitle.
                         if (cnapName != null) {
+                            CnapStore.ensureInit(context)
                             CnapStore.putName(number, cnapName)
                             current.cnapName = cnapName
                         }

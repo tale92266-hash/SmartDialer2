@@ -184,6 +184,7 @@ class CallLogRepository(private val context: Context) {
         // provider name show the network-delivered name, when one was
         // captured for them.
         val cnapNames = try {
+            CnapStore.ensureInit(context)
             CnapStore.getNames(calls.filter { it.name.isNullOrBlank() }.map { it.number })
         } catch (_: Throwable) {
             emptyMap()

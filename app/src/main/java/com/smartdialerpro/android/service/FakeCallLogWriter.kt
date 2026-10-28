@@ -390,6 +390,7 @@ object FakeCallLogWriter {
         // name so the system dialer shows it too.
         if (!values.containsKey(CallLog.Calls.CACHED_NAME)) {
             try {
+                CnapStore.ensureInit(context)
                 CnapStore.getName(phoneNumber)?.let { values.put(CallLog.Calls.CACHED_NAME, it) }
             } catch (_: Throwable) {
             }
