@@ -162,7 +162,7 @@ object FakeCallLogWriter {
         val verified = verifyRow(context, number, expectedDate, durationSecs)
         saveDiag(
             context,
-            "inserted=true verified=$verified account=${lastVerifyAccountId ?: "none"}"
+            "attempt=$lastInsertAttempt errors=[$lastInsertErrors] inserted=true verified=$verified account=${lastVerifyAccountId ?: "none"}"
         )
         return verified
     }
@@ -194,42 +194,97 @@ object FakeCallLogWriter {
         return if (forceSimSlot in handles.indices) handles[forceSimSlot] else handles.firstOrNull()
     }
 
-    /** Insert, retrying with fewer columns when the provider rejects one. A null Uri counts as failure. */
+    /**
+     * Insert, retrying with fewer columns when the provider rejects one.
+     * The ladder is ordered so the SIM / phone-account columns survive
+     * as long as possible: the raw-string columns (`sub_id`,
+     * `phone_account_address`) are the usual poison on OEM providers —
+     * this phone's provider has no `sub_id` column at all, so an insert
+     * carrying it throws and the old ladder only succeeded once the
+     * account columns had been stripped with it, landing rows with a
+     * null account id. Each step records its failure so Diagnostics
+     * shows exactly which column family the provider rejected.
+     */
+    private var lastInsertAttempt = -1
+    private var lastInsertErrors = ""
+
     private fun insertRow(context: Context, values: ContentValues): Boolean {
-        try {
-            val uri = context.contentResolver.insert(CallLog.Calls.CONTENT_URI, values)
-            if (uri != null) return true
-            Log.w(TAG, "Insert returned null, retrying without exotic columns")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Full-column insert failed, retrying without exotic columns", t)
+        val working = ContentValues(values)
+        val errors = StringBuilder()
+        fun tryInsert(attempt: Int): Boolean {
+            return try {
+                val uri = context.contentResolver.insert(CallLog.Calls.CONTENT_URI, working)
+                if (uri != null) {
+                    lastInsertAttempt = attempt
+                    true
+                } else {
+                    errors.append("$attempt:null; ")
+                    false
+                }
+            } catch (t: Throwable) {
+                errors.append("$attempt:${(t.message ?: t.javaClass.simpleName).take(50)}; ")
+                Log.w(TAG, "Insert attempt $attempt failed", t)
+                false
+            }
         }
-        // First retry: drop only the exotic columns and KEEP the SIM /
-        // phone-account columns, so a rejected extra never costs the
-        // SIM info in the log row.
-        try {
-            values.remove(CallLog.Calls.GEOCODED_LOCATION)
-            values.remove(CallLog.Calls.DATA_USAGE)
-            values.remove(CallLog.Calls.FEATURES)
-            values.remove("presentation")
-            values.remove(COL_NUMBERLABEL)
-            values.remove(CallLog.Calls.POST_DIAL_DIGITS)
-            val uri = context.contentResolver.insert(CallLog.Calls.CONTENT_URI, values)
-            if (uri != null) return true
-            Log.w(TAG, "Exotic-stripped insert returned null, retrying without account columns")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Exotic-stripped insert failed, retrying without account columns", t)
+        // 1: full set, exactly as a real call row carries it.
+        if (tryInsert(1)) {
+            lastInsertErrors = errors.toString()
+            return true
         }
-        try {
-            values.remove(CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME)
-            values.remove(CallLog.Calls.PHONE_ACCOUNT_ID)
-            values.remove(COL_PHONE_ACCOUNT_ADDRESS)
-            values.remove(COL_SUB_ID)
-            val uri = context.contentResolver.insert(CallLog.Calls.CONTENT_URI, values)
-            if (uri != null) return true
-            Log.w(TAG, "Core-set insert returned null, retrying minimal set")
-        } catch (t: Throwable) {
-            Log.w(TAG, "Core-set insert failed, retrying minimal set", t)
+        // 2: drop only the raw-string account-adjacent columns; KEEP
+        // the account id/component and everything else.
+        working.remove(COL_SUB_ID)
+        working.remove(COL_PHONE_ACCOUNT_ADDRESS)
+        if (tryInsert(2)) {
+            lastInsertErrors = errors.toString()
+            return true
         }
+        // 3: drop the exotic columns, still keeping the SIM columns.
+        working.remove(CallLog.Calls.GEOCODED_LOCATION)
+        working.remove(CallLog.Calls.DATA_USAGE)
+        working.remove(CallLog.Calls.FEATURES)
+        working.remove("presentation")
+        working.remove(COL_NUMBERLABEL)
+        working.remove(CallLog.Calls.POST_DIAL_DIGITS)
+        if (tryInsert(3)) {
+            lastInsertErrors = errors.toString()
+            return true
+        }
+        // 4: drop the cached-contact extras, still keeping the SIM columns.
+        working.remove(CallLog.Calls.CACHED_NAME)
+        working.remove(CallLog.Calls.CACHED_NUMBER_TYPE)
+        working.remove(CallLog.Calls.CACHED_NUMBER_LABEL)
+        working.remove(CallLog.Calls.CACHED_PHOTO_URI)
+        working.remove(CallLog.Calls.CACHED_PHOTO_ID)
+        working.remove(CallLog.Calls.CACHED_LOOKUP_URI)
+        working.remove(CallLog.Calls.CACHED_MATCHED_NUMBER)
+        working.remove(CallLog.Calls.CACHED_FORMATTED_NUMBER)
+        working.remove(CallLog.Calls.CACHED_NORMALIZED_NUMBER)
+        if (tryInsert(4)) {
+            lastInsertErrors = errors.toString()
+            return true
+        }
+        // 5: core columns + SIM columns only.
+        val coreWithAccount = ContentValues().apply {
+            put(CallLog.Calls.NUMBER, values.getAsString(CallLog.Calls.NUMBER))
+            put(CallLog.Calls.DATE, values.getAsLong(CallLog.Calls.DATE))
+            put(CallLog.Calls.DURATION, values.getAsInteger(CallLog.Calls.DURATION))
+            put(CallLog.Calls.TYPE, values.getAsInteger(CallLog.Calls.TYPE))
+            put(CallLog.Calls.NEW, values.getAsInteger(CallLog.Calls.NEW))
+            put(CallLog.Calls.IS_READ, values.getAsInteger(CallLog.Calls.IS_READ))
+            values.getAsString(CallLog.Calls.COUNTRY_ISO)?.let { put(CallLog.Calls.COUNTRY_ISO, it) }
+            values.getAsString(CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME)?.let { put(CallLog.Calls.PHONE_ACCOUNT_COMPONENT_NAME, it) }
+            values.getAsString(CallLog.Calls.PHONE_ACCOUNT_ID)?.let { put(CallLog.Calls.PHONE_ACCOUNT_ID, it) }
+        }
+        working.clear()
+        working.putAll(coreWithAccount)
+        if (tryInsert(5)) {
+            lastInsertErrors = errors.toString()
+            return true
+        }
+        // 6: bare minimal, last resort — SIM info is sacrificed here.
+        lastInsertErrors = errors.toString()
         return try {
             val minimal = ContentValues().apply {
                 put(CallLog.Calls.NUMBER, values.getAsString(CallLog.Calls.NUMBER))
