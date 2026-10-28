@@ -172,7 +172,7 @@ fun NumberActionsSheet(
             }
             if (onNote != null) {
                 SheetRow(
-                    Icons.Rounded.NoteAlt,
+                    Icons.Rounded.Description,
                     if (note.isNullOrBlank()) "Add call note" else "Edit call note"
                 ) {
                     onNote(number)

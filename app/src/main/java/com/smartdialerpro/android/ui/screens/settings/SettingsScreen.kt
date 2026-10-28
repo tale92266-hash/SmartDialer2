@@ -891,7 +891,7 @@ fun SettingsSystemScreen(navController: NavController? = null) {
             }
         }
         SettingRow(
-            icon = Icons.Rounded.BarChart,
+            icon = Icons.Rounded.TrendingUp,
             title = "Call statistics",
             subtitle = "Totals, talk time, most-called contacts and the last 7 days"
         ) {

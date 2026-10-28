@@ -97,6 +97,7 @@ import com.smartdialerpro.android.viewmodel.RecentsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -1000,19 +1001,24 @@ private fun SwipeableCallRow(
     // Swipe right to call, swipe left to message. The row snaps back
     // after the action fires (confirm returns false), so the list
     // never loses its place.
-    val dismissState = rememberDismissState(confirmValueChange = { value ->
-        when (value) {
-            DismissValue.DismissedToEnd -> {
-                onCall()
-                false
+    val dismissState = remember {
+        DismissState(
+            initialValue = DismissValue.Default,
+            confirmValueChange = { value ->
+                when (value) {
+                    DismissValue.DismissedToEnd -> {
+                        onCall()
+                        false
+                    }
+                    DismissValue.DismissedToStart -> {
+                        onMessage()
+                        false
+                    }
+                    else -> false
+                }
             }
-            DismissValue.DismissedToStart -> {
-                onMessage()
-                false
-            }
-            else -> false
-        }
-    })
+        )
+    }
     SwipeToDismiss(
         state = dismissState,
         background = {
@@ -1217,7 +1223,7 @@ private fun HomeCallItemRow(
                     Spacer(Modifier.height(3.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Rounded.NoteAlt,
+                            Icons.Rounded.Description,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(13.dp)
