@@ -601,7 +601,6 @@ private fun SectionTitle(title: String) {
     )
 }
 
-@Composable
 private data class FakeCallDiag(
     val defaultDialer: String,
     val permissions: String,
@@ -693,6 +692,7 @@ private fun readLastFakeLogRow(context: Context, prefs: android.content.SharedPr
     }
 }
 
+@Composable
 private fun SettingRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
