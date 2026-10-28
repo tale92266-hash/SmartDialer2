@@ -68,16 +68,15 @@ object CallRecordingManager {
         val newRecorder = try {
             descriptor = appContext.contentResolver.openFileDescriptor(uri, "w")
                 ?: throw IllegalStateException("Unable to open recording destination")
-
-            MediaRecorder().apply {
-                setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(128_000)
-                setAudioSamplingRate(44_100)
-                setOutputFile(descriptor!!.fileDescriptor)
-                prepare()
-                start()
+            // VOICE_COMMUNICATION captures both sides of the call on
+            // most devices, but some OEM builds reject it while a
+            // Telecom call holds the audio path. Fall back to the MIC
+            // source rather than saving nothing at all.
+            try {
+                createAndStartRecorder(descriptor!!, MediaRecorder.AudioSource.VOICE_COMMUNICATION)
+            } catch (t: Throwable) {
+                Log.w(TAG, "VOICE_COMMUNICATION recording failed, retrying with MIC", t)
+                createAndStartRecorder(descriptor!!, MediaRecorder.AudioSource.MIC)
             }
         } catch (t: Throwable) {
             Log.e(TAG, "Unable to initialize/start MediaRecorder", t)
@@ -158,6 +157,30 @@ object CallRecordingManager {
 
     fun clearStatus() {
         _statusMessage.value = null
+    }
+
+    /** Creates, prepares and starts a recorder; releases it again if any step fails. */
+    private fun createAndStartRecorder(
+        descriptor: ParcelFileDescriptor,
+        audioSource: Int
+    ): MediaRecorder {
+        val recorder = MediaRecorder()
+        try {
+            recorder.apply {
+                setAudioSource(audioSource)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setAudioEncodingBitRate(128_000)
+                setAudioSamplingRate(44_100)
+                setOutputFile(descriptor.fileDescriptor)
+                prepare()
+                start()
+            }
+        } catch (t: Throwable) {
+            releaseRecorder(recorder)
+            throw t
+        }
+        return recorder
     }
 
     private fun releaseRecorder(value: MediaRecorder) {

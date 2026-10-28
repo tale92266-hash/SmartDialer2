@@ -28,6 +28,9 @@ object Utils {
 
     private val avatarMemoryCache = object : LruCache<String, ImageBitmap>(120) {}
 
+    /** Longest decoded side for a cached avatar bitmap (48dp at xxxhdpi). */
+    private const val MAX_AVATAR_PX = 192
+
     suspend fun loadCachedAvatar(context: Context, uriString: String): ImageBitmap? {
         if (uriString.isBlank()) return null
         synchronized(avatarMemoryCache) {
@@ -35,8 +38,22 @@ object Utils {
         }
         return withContext(Dispatchers.IO) {
             try {
+                // Downsample to the size actually shown (avatars render
+                // at 48dp): decoding full-size contact photos on the fly
+                // stalled list scrolling with large bitmap uploads.
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 context.contentResolver.openInputStream(Uri.parse(uriString))?.use { stream ->
-                    BitmapFactory.decodeStream(stream)?.asImageBitmap()?.also { bitmap ->
+                    BitmapFactory.decodeStream(stream, null, bounds)
+                }
+                val sampleSize = run {
+                    var sample = 1
+                    val maxSide = maxOf(bounds.outWidth, bounds.outHeight)
+                    while (maxSide / sample > MAX_AVATAR_PX) sample *= 2
+                    sample
+                }
+                val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+                context.contentResolver.openInputStream(Uri.parse(uriString))?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()?.also { bitmap ->
                         synchronized(avatarMemoryCache) {
                             avatarMemoryCache.put(uriString, bitmap)
                         }

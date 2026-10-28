@@ -14,12 +14,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
@@ -959,7 +960,6 @@ private fun HomeCallItemRow(
             .padding(horizontal = if (expanded) 8.dp else 0.dp, vertical = 1.dp)
             .background(backgroundColor, RoundedCornerShape(18.dp))
             .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
-            .animateContentSize(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
             .padding(horizontal = if (expanded) 14.dp else 16.dp, vertical = 12.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1065,18 +1065,24 @@ private fun HomeCallItemRow(
             }
         }
 
-        if (expanded) {
-            Divider(Modifier.padding(vertical = 8.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                HomeActionItem(Icons.Rounded.Call, "Call", onCall)
-                HomeActionItem(Icons.AutoMirrored.Rounded.Message, "Message", onMessage)
-                HomeActionItem(ImageVector.vectorResource(R.drawable.ic_whatsapp), "WhatsApp", onWhatsApp, Color(0xFF25D366))
-                HomeActionItem(Icons.Rounded.Info, "Details", onInfo)
-                if (isUnknown && isContactOnly.not()) {
-                    HomeActionItem(Icons.Rounded.PersonAdd, "Save", onAddContact)
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandIn(spring(stiffness = Spring.StiffnessMedium), expandFrom = Alignment.TopCenter) + fadeIn(),
+            exit = shrinkOut(spring(stiffness = Spring.StiffnessMedium), shrinkTowards = Alignment.TopCenter) + fadeOut()
+        ) {
+            Column {
+                Divider(Modifier.padding(vertical = 8.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    HomeActionItem(Icons.Rounded.Call, "Call", onCall)
+                    HomeActionItem(Icons.AutoMirrored.Rounded.Message, "Message", onMessage)
+                    HomeActionItem(ImageVector.vectorResource(R.drawable.ic_whatsapp), "WhatsApp", onWhatsApp, Color(0xFF25D366))
+                    HomeActionItem(Icons.Rounded.Info, "Details", onInfo)
+                    if (isUnknown && isContactOnly.not()) {
+                        HomeActionItem(Icons.Rounded.PersonAdd, "Save", onAddContact)
+                    }
                 }
             }
         }

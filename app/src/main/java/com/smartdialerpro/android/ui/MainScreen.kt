@@ -169,12 +169,14 @@ fun MainScreen() {
                     if (!isTabRoute) {
                         navController.popBackStack(Screen.Home.route, inclusive = false)
                     }
-                    if (screen.route != Screen.Home.route) {
-                        navController.navigate(screen.route) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                    // Every tab navigates, including Home: skipping the
+                    // navigate call for Home left the user stuck on
+                    // Favorites/Contacts/Settings, since the Home
+                    // destination below them never came to the front.
+                    navController.navigate(screen.route) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
                 }
             }

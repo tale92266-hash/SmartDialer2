@@ -307,7 +307,9 @@ private suspend fun queryRecordings(context: Context): List<RecordingItem> = wit
             while (cursor.moveToNext()) {
                 val name = if (nameIdx >= 0) cursor.getString(nameIdx).orEmpty() else ""
                 val relativePath = if (pathIdx >= 0) cursor.getString(pathIdx).orEmpty() else ""
-                val isOurs = name.startsWith("Call_") || relativePath == RECORDINGS_RELATIVE_PATH
+                // MediaStore reports the path with a trailing slash
+                // ("Music/SmartDialer/Calls/"); compare slash-insensitively.
+                val isOurs = name.startsWith("Call_") || relativePath.trimEnd('/') == RECORDINGS_RELATIVE_PATH
                 if (!isOurs || name.isBlank()) continue
                 val id = if (idIdx >= 0) cursor.getLong(idIdx) else continue
                 items.add(
