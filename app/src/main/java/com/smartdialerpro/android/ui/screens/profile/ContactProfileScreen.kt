@@ -59,7 +59,6 @@ import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.repository.ContactsRepository
 import com.smartdialerpro.android.ui.components.FakeCallSheet
 import com.smartdialerpro.android.service.FakeCallSim
-import com.smartdialerpro.android.ui.components.SimBadge
 import com.smartdialerpro.android.ui.components.SimSlotIcon
 import com.smartdialerpro.android.ui.components.WhatsAppChooserDialog
 import com.smartdialerpro.android.ui.components.launchWhatsApp
@@ -677,16 +676,7 @@ private fun ProfileCallHistoryRow(call: RecentCall) {
                 Text(if (call.duration > 0) formatDuration(call.duration) else "—", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 call.simSlot?.let {
                     Spacer(Modifier.height(3.dp))
-                    SimBadge(
-                        slot = it,
-                        label = "SIM $it",
-                        glyphSize = 11.dp,
-                        textSize = 11.sp,
-                        horizontalPadding = 8.dp,
-                        verticalPadding = 3.dp,
-                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    )
+                    SimSlotIcon(slot = it, size = 11.dp)
                 }
             }
         }
