@@ -20,6 +20,14 @@ class SmartDialerApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // CNAP cache must be ready in EVERY process start, not just
+        // when the user opens the app UI: an incoming call cold-starts
+        // this process through the telecom-bound InCallService, and
+        // MainActivity.onCreate never runs in that path. Without this,
+        // a captured CNAP name was shown on the call screen (in-memory
+        // only) but never persisted, so call logs could never show it.
+        com.smartdialerpro.android.data.CnapStore.init(this)
+
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val stackTrace = Log.getStackTraceString(throwable)
             val timestamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
