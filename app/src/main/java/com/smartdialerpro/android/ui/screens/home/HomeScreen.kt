@@ -991,7 +991,6 @@ private fun DateHeader(label: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-@Composable
 private fun SwipeableCallRow(
     call: RecentCall,
     expanded: Boolean,
@@ -1126,6 +1125,8 @@ private fun NoteEditorDialog(
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun HomeCallItemRow(
     call: RecentCall,
     expanded: Boolean,
