@@ -14,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -31,6 +32,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -59,9 +61,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.vectorResource
@@ -69,6 +73,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -984,7 +989,6 @@ private fun DateHeader(label: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeableCallRow(
     call: RecentCall,
@@ -998,54 +1002,69 @@ private fun SwipeableCallRow(
     onLongPress: () -> Unit = {},
     note: String? = null
 ) {
-    // Swipe right to call, swipe left to message. The row snaps back
-    // after the action fires (confirm returns false), so the list
-    // never loses its place.
-    val dismissState = remember {
-        DismissState(
-            initialValue = DismissValue.Default,
-            confirmValueChange = { value ->
-                when (value) {
-                    DismissValue.DismissedToEnd -> {
-                        onCall()
-                        false
-                    }
-                    DismissValue.DismissedToStart -> {
-                        onMessage()
-                        false
-                    }
-                    else -> false
-                }
-            }
-        )
+    // Swipe right to call, swipe left to message. Implemented with
+    // foundation drag APIs only (no version-sensitive Material3
+    // dismiss APIs): the row follows the finger, fires past a
+    // threshold, and springs back so the list never loses its place.
+    val scope = rememberCoroutineScope()
+    val offsetX = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val thresholdPx = with(density) { 96.dp.toPx() }
+    val maxPx = with(density) { 160.dp.toPx() }
+    val offset = offsetX.value
+    val snapBack = {
+        scope.launch {
+            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+        }
     }
-    SwipeToDismiss(
-        state = dismissState,
-        background = {
-            val direction = dismissState.dismissDirection ?: return@SwipeToDismiss
-            val (color, icon, alignment) = when (direction) {
-                DismissDirection.StartToEnd -> Triple(
-                    CallAnswerGreen,
-                    Icons.Rounded.Call,
-                    Alignment.CenterStart
-                )
-                DismissDirection.EndToStart -> Triple(
-                    MaterialTheme.colorScheme.secondary,
-                    Icons.AutoMirrored.Rounded.Message,
-                    Alignment.CenterEnd
-                )
-            }
+    Box(Modifier.fillMaxWidth()) {
+        if (offset != 0f) {
+            val progress = (kotlin.math.abs(offset) / thresholdPx).coerceIn(0f, 1f)
+            val swipingRight = offset > 0f
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(color, RoundedCornerShape(18.dp))
+                    .background(
+                        (if (swipingRight) CallAnswerGreen else MaterialTheme.colorScheme.secondary)
+                            .copy(alpha = 0.35f + 0.65f * progress),
+                        RoundedCornerShape(18.dp)
+                    )
                     .padding(horizontal = 22.dp),
-                contentAlignment = alignment
+                contentAlignment = if (swipingRight) Alignment.CenterStart else Alignment.CenterEnd
             ) {
-                Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                Icon(
+                    if (swipingRight) Icons.Rounded.Call else Icons.AutoMirrored.Rounded.Message,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(24.dp)
+                        .graphicsLayer { alpha = progress }
+                )
             }
-        },
-        dismissContent = {
+        }
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offset.roundToInt(), 0) }
+                .pointerInput(Unit) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            scope.launch {
+                                when {
+                                    offsetX.value > thresholdPx -> onCall()
+                                    offsetX.value < -thresholdPx -> onMessage()
+                                }
+                                offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                            }
+                        },
+                        onDragCancel = { snapBack() }
+                    ) { change, dragAmount ->
+                        change.consume()
+                        scope.launch {
+                            offsetX.snapTo((offsetX.value + dragAmount).coerceIn(-maxPx, maxPx))
+                        }
+                    }
+                }
+        ) {
             HomeCallItemRow(
                 call = call,
                 expanded = expanded,
@@ -1059,7 +1078,7 @@ private fun SwipeableCallRow(
                 note = note
             )
         }
-    )
+    }
 }
 
 @Composable
@@ -1223,7 +1242,7 @@ private fun HomeCallItemRow(
                     Spacer(Modifier.height(3.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            Icons.Rounded.Description,
+                            Icons.Rounded.Edit,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(13.dp)
