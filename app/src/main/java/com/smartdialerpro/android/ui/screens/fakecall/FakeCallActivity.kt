@@ -359,6 +359,13 @@ class FakeCallActivity : ComponentActivity() {
         val wasMissed = connectTimeMillis == 0L
         val fakeStartTime = now - (finalDuration * 1000L)
         try {
+            getSharedPreferences("dialer_preferences", MODE_PRIVATE).edit()
+                .putString("fake_log_last_number", number)
+                .putLong("fake_log_last_date", fakeStartTime)
+                .apply()
+        } catch (_: Throwable) {
+        }
+        try {
             val logSaved = FakeCallLogWriter.addFakeLog(this, number, fakeStartTime, finalDuration, simSlot, wasMissed)
             if (!logSaved) {
                 Toast.makeText(

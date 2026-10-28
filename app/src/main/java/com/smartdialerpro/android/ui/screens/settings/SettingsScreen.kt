@@ -6,7 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.CallLog
 import android.provider.Settings
+import android.telecom.TelecomManager
+import android.telephony.SubscriptionManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -25,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.smartdialerpro.android.service.AmbientSoundManager
+import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.ui.components.CompactTopBar
 import com.smartdialerpro.android.ui.navigation.Screen
 
@@ -530,6 +534,50 @@ fun SettingsMagicCallScreen(navController: NavController? = null) {
             }
         }
 
+        SectionTitle("Diagnostics")
+        var diagRefresh by remember { mutableStateOf(0) }
+        val diag = remember(diagRefresh) { loadFakeCallDiagnostics(context) }
+        SettingRow(
+            icon = Icons.Rounded.Phone,
+            title = "Default dialer",
+            subtitle = diag.defaultDialer
+        ) {}
+        SettingRow(
+            icon = Icons.Rounded.Security,
+            title = "Permissions",
+            subtitle = diag.permissions
+        ) {}
+        SettingRow(
+            icon = Icons.Rounded.SimCard,
+            title = "Phone accounts",
+            subtitle = diag.accounts
+        ) {}
+        SettingRow(
+            icon = Icons.Rounded.SignalCellularAlt,
+            title = "SIM subscriptions",
+            subtitle = diag.subscriptions
+        ) {}
+        SettingRow(
+            icon = Icons.Rounded.AutoAwesome,
+            title = "Default fake-call SIM",
+            subtitle = diag.defaultSim
+        ) {}
+        SettingRow(
+            icon = Icons.Rounded.History,
+            title = "Last fake-call log write",
+            subtitle = diag.lastWrite
+        ) {}
+        SettingRow(
+            icon = Icons.Rounded.Visibility,
+            title = "Last log row on this phone",
+            subtitle = diag.lastRow
+        ) {}
+        SettingRow(
+            icon = Icons.Rounded.Refresh,
+            title = "Refresh diagnostics",
+            subtitle = "Tap to re-check after a fake call"
+        ) { diagRefresh++ }
+
         SectionTitle("About Magic Call")
         Text(
             "Magic Call starts a simulated outgoing call with the duration you pick. " +
@@ -554,6 +602,97 @@ private fun SectionTitle(title: String) {
 }
 
 @Composable
+private data class FakeCallDiag(
+    val defaultDialer: String,
+    val permissions: String,
+    val accounts: String,
+    val subscriptions: String,
+    val defaultSim: String,
+    val lastWrite: String,
+    val lastRow: String
+)
+
+/** On-device facts for debugging fake-call SIM / log issues. All reads guarded: a missing permission or column shows as text, never a crash. */
+private fun loadFakeCallDiagnostics(context: Context): FakeCallDiag {
+    fun granted(perm: String) =
+        ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+
+    val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager
+    val defaultDialer = try {
+        val isDefault = telecom?.defaultDialerPackage == context.packageName
+        if (isDefault) "Yes — SmartDialer" else "No — ${telecom?.defaultDialerPackage ?: "unknown"}"
+    } catch (_: Throwable) {
+        "Unknown"
+    }
+    val permissions = "Phone state: ${if (granted(Manifest.permission.READ_PHONE_STATE)) "granted" else "DENIED"}, " +
+        "Read log: ${if (granted(Manifest.permission.READ_CALL_LOG)) "granted" else "DENIED"}, " +
+        "Write log: ${if (granted(Manifest.permission.WRITE_CALL_LOG)) "granted" else "DENIED"}"
+
+    val accounts = try {
+        val handles = telecom?.callCapablePhoneAccounts.orEmpty()
+        if (handles.isEmpty()) "None found"
+        else handles.mapIndexed { i, h -> "$i: ${h.id.take(16)}" }.joinToString(" | ")
+    } catch (t: Throwable) {
+        "Error: ${t.javaClass.simpleName}"
+    }
+    val subscriptions = try {
+        val subs = SubscriptionManager.from(context)?.activeSubscriptionInfoList.orEmpty()
+        if (subs.isEmpty()) "None found (needs phone-state permission)"
+        else subs.joinToString(" | ") {
+            "slot ${it.simSlotIndex}: subId ${it.subscriptionId} • ${it.carrierName ?: ""}"
+        }
+    } catch (t: Throwable) {
+        "Error: ${t.javaClass.simpleName}"
+    }
+    val defaultSim = try {
+        val slot = FakeCallSim.resolveDefaultSimSlot(context)
+        FakeCallSim.simLabelForSlot(context, slot) + " (slot $slot)"
+    } catch (t: Throwable) {
+        "Error: ${t.javaClass.simpleName}"
+    }
+    val prefs = context.getSharedPreferences("dialer_preferences", Context.MODE_PRIVATE)
+    val lastWrite = prefs.getString("fake_log_last_write", null) ?: "No fake call logged yet"
+    val lastRow = readLastFakeLogRow(context, prefs)
+    return FakeCallDiag(defaultDialer, permissions, accounts, subscriptions, defaultSim, lastWrite, lastRow)
+}
+
+private fun readLastFakeLogRow(context: Context, prefs: android.content.SharedPreferences): String {
+    val number = prefs.getString("fake_log_last_number", null)
+    if (number.isNullOrBlank()) return "No fake call logged yet"
+    return try {
+        val base = arrayOf(CallLog.Calls.DATE, CallLog.Calls.DURATION, CallLog.Calls.PHONE_ACCOUNT_ID)
+        val withSub = base + "sub_id"
+        var usedSub = true
+        var cursor = try {
+            context.contentResolver.query(
+                CallLog.Calls.CONTENT_URI, withSub,
+                "${CallLog.Calls.NUMBER} = ?", arrayOf(number),
+                "${CallLog.Calls.DATE} DESC LIMIT 1"
+            )
+        } catch (_: Throwable) {
+            usedSub = false
+            context.contentResolver.query(
+                CallLog.Calls.CONTENT_URI, base,
+                "${CallLog.Calls.NUMBER} = ?", arrayOf(number),
+                "${CallLog.Calls.DATE} DESC LIMIT 1"
+            )
+        }
+        cursor?.use {
+            if (!it.moveToFirst()) return "No row found for $number"
+            val date = it.getLong(0)
+            val duration = it.getInt(1)
+            val account = if (!it.isNull(2)) it.getString(2)?.take(20) else null
+            val sub = if (usedSub) {
+                val idx = it.getColumnIndex("sub_id")
+                if (idx >= 0 && !it.isNull(idx)) it.getLong(idx).toString() else "missing"
+            } else "column absent"
+            "date=$date duration=${duration}s account=${account ?: "MISSING"} sub_id=$sub"
+        } ?: "Query returned nothing (needs call-log permission)"
+    } catch (t: Throwable) {
+        "Error: ${t.javaClass.simpleName} — needs call-log permission"
+    }
+}
+
 private fun SettingRow(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,

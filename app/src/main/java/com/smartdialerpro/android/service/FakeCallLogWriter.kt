@@ -73,6 +73,7 @@ object FakeCallLogWriter {
             val hasWritePerm = ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALL_LOG) == PackageManager.PERMISSION_GRANTED
             if (!isDefaultDialer && !hasWritePerm) {
                 Toast.makeText(context, "Please make the app DEFAULT DIALER first to show logs globally!", Toast.LENGTH_LONG).show()
+                saveDiag(context, "blocked: not default dialer and no WRITE_CALL_LOG")
                 return false
             }
         }
@@ -154,8 +155,29 @@ object FakeCallLogWriter {
             }
         }
 
-        if (!insertRow(context, values)) return false
-        return verifyRow(context, number, expectedDate, durationSecs)
+        if (!insertRow(context, values)) {
+            saveDiag(context, "inserted=false (all retries failed)")
+            return false
+        }
+        val verified = verifyRow(context, number, expectedDate, durationSecs)
+        saveDiag(
+            context,
+            "inserted=true verified=$verified account=${lastVerifyAccountId ?: "none"}"
+        )
+        return verified
+    }
+
+    @Volatile
+    private var lastVerifyAccountId: String? = null
+
+    private fun saveDiag(context: Context, text: String) {
+        try {
+            context.getSharedPreferences("dialer_preferences", Context.MODE_PRIVATE)
+                .edit()
+                .putString("fake_log_last_write", text)
+                .apply()
+        } catch (_: Throwable) {
+        }
     }
 
     /**
@@ -238,6 +260,7 @@ object FakeCallLogWriter {
                 if (cursor.moveToFirst()) {
                     val date = cursor.getLong(0)
                     val duration = cursor.getInt(1)
+                    lastVerifyAccountId = if (!cursor.isNull(2)) cursor.getString(2) else null
                     found = duration == durationSecs && kotlin.math.abs(date - expectedDate) <= 3000L
                     if (found && cursor.isNull(2)) {
                         Log.w(TAG, "Call-log row verified but has no phone-account id — SIM will show blank")
