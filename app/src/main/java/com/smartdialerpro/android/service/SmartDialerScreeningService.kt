@@ -24,24 +24,24 @@ class SmartDialerScreeningService : CallScreeningService() {
     override fun onScreenCall(callDetails: Call.Details) {
         try {
             if (!isSilenceUnknownEnabled()) {
-                respondToCall(allowCall())
+                respondToCall(callDetails, allowCall())
                 return
             }
             val number = callDetails.handle?.schemeSpecificPart.orEmpty()
             if (number.isBlank()) {
                 // Withheld/private number: treat as unknown and silence.
-                respondToCall(silenceCall())
+                respondToCall(callDetails, silenceCall())
                 return
             }
             if (isNumberInContacts(number)) {
-                respondToCall(allowCall())
+                respondToCall(callDetails, allowCall())
             } else {
-                respondToCall(silenceCall())
+                respondToCall(callDetails, silenceCall())
             }
         } catch (t: Throwable) {
             Log.w(TAG, "Screening failed, allowing call", t)
             try {
-                respondToCall(allowCall())
+                respondToCall(callDetails, allowCall())
             } catch (_: Throwable) {
             }
         }
