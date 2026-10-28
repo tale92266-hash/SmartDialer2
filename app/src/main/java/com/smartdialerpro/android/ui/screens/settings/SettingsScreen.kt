@@ -498,7 +498,7 @@ fun SettingsCallsScreen(navController: NavController? = null) {
             subtitle = "Text telephone mode for incoming and outgoing calls"
         ) { openSystemPage(context, "android.settings.TTY_SETTINGS", Settings.ACTION_ACCESSIBILITY_SETTINGS) }
         SettingRow(
-            icon = Icons.Rounded.HearingAid,
+            icon = Icons.Rounded.VolumeUp,
             title = "Hearing aids",
             subtitle = "Bluetooth hearing aid and compatibility settings"
         ) { openSystemPage(context, "android.settings.HEARING_AID_SETTINGS", Settings.ACTION_ACCESSIBILITY_SETTINGS) }

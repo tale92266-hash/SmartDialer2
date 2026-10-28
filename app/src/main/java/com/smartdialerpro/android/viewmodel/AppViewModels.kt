@@ -17,6 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.smartdialerpro.android.data.CnapStore
 import com.smartdialerpro.android.data.Contact
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
@@ -282,6 +283,41 @@ class DialerViewModel(
                         )
                     )
                 }
+            }
+
+            // 3. CNAP names: numbers the network named that have no call
+            // history and no saved contact (e.g. the log row was
+            // deleted). They surface in search under their network name.
+            try {
+                for (entry in CnapStore.allEntries()) {
+                    val key = normalizeToDedupeKey(entry.number)
+                    if (key.isNotBlank() && !seenNumbersInLogs.contains(key)) {
+                        seenNumbersInLogs.add(key)
+                        val name = entry.name.trim()
+                        val digits = entry.number.filter(Char::isDigit)
+                        entries.add(
+                            IndexedSearchEntry(
+                                call = RecentCall(
+                                    id = "cnap_${entry.number}",
+                                    name = name,
+                                    number = entry.number,
+                                    type = -1,
+                                    date = 0L,
+                                    duration = 0L,
+                                    photoUri = null,
+                                    callCount = 0,
+                                    missedCount = 0
+                                ),
+                                cleanDigits = digits,
+                                t9Name = computeT9(name),
+                                nameLower = name.lowercase(),
+                                dedupeKey = key,
+                                hasHistory = false
+                            )
+                        )
+                    }
+                }
+            } catch (_: Throwable) {
             }
 
             allIndexedEntries = entries

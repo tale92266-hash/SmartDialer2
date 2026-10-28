@@ -24,6 +24,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.smartdialerpro.android.MainActivity
 import com.smartdialerpro.android.R
+import com.smartdialerpro.android.data.CnapStore
 
 /**
  * Writes a Magic (fake) call into the system call log so it looks
@@ -384,6 +385,14 @@ object FakeCallLogWriter {
             Log.e(TAG, "Cached contact lookup failed", t)
         } finally {
             cursor?.close()
+        }
+        // CNAP fallback: no saved contact — cache the network-delivered
+        // name so the system dialer shows it too.
+        if (!values.containsKey(CallLog.Calls.CACHED_NAME)) {
+            try {
+                CnapStore.getName(phoneNumber)?.let { values.put(CallLog.Calls.CACHED_NAME, it) }
+            } catch (_: Throwable) {
+            }
         }
     }
 

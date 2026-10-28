@@ -37,6 +37,8 @@ import com.smartdialerpro.android.ui.theme.SmartDialerTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // CNAP name cache (network-delivered caller names).
+        com.smartdialerpro.android.data.CnapStore.init(this)
         setContent {
             SmartDialerTheme {
                 val context = LocalContext.current

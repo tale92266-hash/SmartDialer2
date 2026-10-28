@@ -12,6 +12,7 @@ import android.telephony.SubscriptionInfo
 import android.telephony.SubscriptionManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.smartdialerpro.android.data.CnapStore
 import com.smartdialerpro.android.data.RecentCall
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -179,13 +180,26 @@ class CallLogRepository(private val context: Context) {
             return@withContext memoryCache
         }
 
+        // CNAP fallback: numbers with no contact name and no cached
+        // provider name show the network-delivered name, when one was
+        // captured for them.
+        val cnapNames = try {
+            CnapStore.getNames(calls.filter { it.name.isNullOrBlank() }.map { it.number })
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+
         val counts = calls.groupingBy { PhoneNumberUtils.normalizeNumber(it.number) }.eachCount()
         val missedCounts = calls.filter { it.type == CallLog.Calls.MISSED_TYPE }
             .groupingBy { PhoneNumberUtils.normalizeNumber(it.number) }.eachCount()
 
         val processedResult = calls.map { call ->
             val key = PhoneNumberUtils.normalizeNumber(call.number)
-            call.copy(callCount = counts[key] ?: 1, missedCount = missedCounts[key] ?: 0)
+            call.copy(
+                name = call.name ?: cnapNames[CnapStore.keyFor(call.number)],
+                callCount = counts[key] ?: 1,
+                missedCount = missedCounts[key] ?: 0
+            )
         }
 
         // Cache permanently in RAM and asynchronously to disk

@@ -149,6 +149,7 @@ fun PremiumInCallScreen(
     val callState by CallManager.callState.collectAsState()
     val number by CallManager.callNumber.collectAsState()
     val name by CallManager.callerName.collectAsState()
+    val cnapName by CallManager.cnapName.collectAsState()
     val photoUri by CallManager.callerPhotoUri.collectAsState()
     val simInfo by CallManager.simInfo.collectAsState()
     val isMuted by CallManager.isMuted.collectAsState()
@@ -254,7 +255,7 @@ fun PremiumInCallScreen(
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF08070D), Color(0xFF15102A), Color(0xFF241238), Color(0xFF100B19)))))
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                InCallHeader(stateText, displayName, number, simInfo, contactBitmap, isRinging || isConnecting)
+                InCallHeader(stateText, displayName, number, simInfo, contactBitmap, isRinging || isConnecting, cnapName = cnapName)
                 if (isRecording && (showActiveControls || isConnecting)) {
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {

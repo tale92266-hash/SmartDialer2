@@ -42,7 +42,9 @@ fun InCallHeader(
     contactBitmap: ImageBitmap?,
     animateAvatar: Boolean,
     /** 1-based SIM slot: when set, the SIM glyph icon is shown instead of the generic SIM icon. */
-    simSlot: Int? = null
+    simSlot: Int? = null,
+    /** Network-delivered CNAP name: shown as a subtitle when it differs from the contact name. */
+    cnapName: String? = null
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -67,6 +69,18 @@ fun InCallHeader(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth()
         )
+        if (!cnapName.isNullOrBlank() && cnapName != displayName) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = cnapName,
+                fontSize = 15.sp,
+                color = Color.White.copy(alpha = .60f),
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         if (number.isNotBlank() && displayName != number) {
             Spacer(Modifier.height(5.dp))
             val context = LocalContext.current

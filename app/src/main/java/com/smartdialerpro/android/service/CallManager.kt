@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.smartdialerpro.android.data.CnapStore
 
 /** Single source of truth for every Telecom Call currently exposed by AppInCallService. */
 object CallManager {
@@ -57,6 +58,11 @@ object CallManager {
     val callNumber = _callNumber.asStateFlow()
     private val _callerName = MutableStateFlow<String?>(null)
     val callerName = _callerName.asStateFlow()
+    private val _cnapName = MutableStateFlow<String?>(null)
+    /** Network-delivered CNAP name for the selected call, when the
+     * carrier supplied one. Shown as a subtitle when it differs from
+     * the contact name. */
+    val cnapName = _cnapName.asStateFlow()
     private val _callerPhotoUri = MutableStateFlow<String?>(null)
     val callerPhotoUri = _callerPhotoUri.asStateFlow()
     private val _simInfo = MutableStateFlow<String?>(null)
@@ -73,7 +79,7 @@ object CallManager {
     val recordingStatus = CallRecordingManager.statusMessage
 
     data class CallSnapshot(val call: Call, val state: Int, val number: String, val name: String?, val photoUri: String?, val simInfo: String?, val durationSeconds: Long, val isSelected: Boolean, val isConference: Boolean)
-    private data class MutableCallSnapshot(var state: Int, var number: String = "", var name: String? = null, var photoUri: String? = null, var simInfo: String? = null, var durationSeconds: Long = 0L, var isOutgoing: Boolean = false)
+    private data class MutableCallSnapshot(var state: Int, var number: String = "", var name: String? = null, var photoUri: String? = null, var simInfo: String? = null, var durationSeconds: Long = 0L, var isOutgoing: Boolean = false, var cnapName: String? = null, var addedAtMillis: Long = 0L)
 
     val callsFlow = trackedCalls
     val selectedCallFlow = MutableStateFlow<Call?>(null).also { flow ->
@@ -102,6 +108,8 @@ object CallManager {
             var redialName: String? = null
             var redialCause = -1
             var redialOutgoing = false
+            var redialRingSecs = 0L
+            var redialWasActive = false
             synchronized(lock) {
                 val snapshot = calls[call] ?: return
                 val previousState = snapshot.state
@@ -135,6 +143,10 @@ object CallManager {
                         -1
                     }
                     redialOutgoing = snapshot.isOutgoing
+                    redialWasActive = previousState == Call.STATE_ACTIVE
+                    redialRingSecs = if (snapshot.addedAtMillis > 0L) {
+                        (System.currentTimeMillis() - snapshot.addedAtMillis) / 1000L
+                    } else 0L
                 }
                 val selected = when {
                     state == Call.STATE_ACTIVE -> call
@@ -154,7 +166,7 @@ object CallManager {
             if (shouldStopRingingFx) stopRingingEffects()
             if (state != Call.STATE_RINGING) cancelAutoAnswer()
             if (shouldAutoAnswer) maybeAutoAnswer(call)
-            if (redialNumber != null) maybeAutoRedial(call, redialNumber!!, redialName, redialCause, redialOutgoing)
+            if (redialNumber != null) maybeAutoRedial(call, redialNumber!!, redialName, redialCause, redialOutgoing, redialRingSecs, redialWasActive)
             inCallService?.updateNotification()
         }
 
@@ -173,7 +185,7 @@ object CallManager {
         synchronized(lock) {
             inCallService = service
             if (!calls.containsKey(call)) {
-                calls[call] = MutableCallSnapshot(call.state, isOutgoing = call.state != Call.STATE_RINGING)
+                calls[call] = MutableCallSnapshot(call.state, isOutgoing = call.state != Call.STATE_RINGING, addedAtMillis = System.currentTimeMillis())
                 call.registerCallback(callback)
             }
             updateDetailsLocked(call, call.details)
@@ -230,6 +242,7 @@ object CallManager {
         _callState.value = selected?.state ?: Call.STATE_DISCONNECTED
         _callNumber.value = snapshot?.number.orEmpty()
         _callerName.value = snapshot?.name
+        _cnapName.value = snapshot?.cnapName
         _callerPhotoUri.value = snapshot?.photoUri
         _simInfo.value = snapshot?.simInfo
         _isOnHold.value = selected?.state == Call.STATE_HOLDING
@@ -243,8 +256,19 @@ object CallManager {
         snapshot.number = details.handle?.schemeSpecificPart.orEmpty()
         snapshot.simInfo = resolveSimInfo(context, details.accountHandle)
         detailsJobs.remove(call)?.cancel()
+        // CNAP: the carrier-delivered caller name, only for incoming
+        // calls and only when the carrier marks it as allowed to show.
+        val cnapName: String? = try {
+            if (snapshot.isOutgoing) null
+            else if (details.callerDisplayNamePresentation == TelecomManager.PRESENTATION_ALLOWED) {
+                details.callerDisplayName?.takeIf { it.isNotBlank() }
+            } else null
+        } catch (_: Throwable) {
+            null
+        }
         if (snapshot.number.isBlank()) {
             snapshot.name = null
+            snapshot.cnapName = null
             snapshot.photoUri = null
             return
         }
@@ -268,7 +292,13 @@ object CallManager {
                 synchronized(lock) {
                     val current = calls[call] ?: return@synchronized
                     if (current.number == number) {
-                        current.name = foundName
+                        // A contact name wins; the CNAP name fills in
+                        // for unknown numbers and stays as the subtitle.
+                        if (cnapName != null) {
+                            CnapStore.putName(number, cnapName)
+                            current.cnapName = cnapName
+                        }
+                        current.name = foundName ?: cnapName ?: current.name
                         current.photoUri = foundPhoto
                         publishLocked(currentCall ?: call)
                     }
@@ -519,12 +549,16 @@ object CallManager {
         }
     }
 
-    private fun maybeAutoRedial(call: Call, number: String, name: String?, causeCode: Int, isOutgoing: Boolean) {
-        if (!isOutgoing) return
-        if (causeCode != DisconnectCause.BUSY &&
-            causeCode != DisconnectCause.NO_ANSWER &&
-            causeCode != DisconnectCause.CONGESTION
-        ) return
+    private fun maybeAutoRedial(call: Call, number: String, name: String?, causeCode: Int, isOutgoing: Boolean, ringSecs: Long, wasActive: Boolean) {
+        if (!isOutgoing || wasActive) return
+        // Retryable endings: busy at any point, or a call that rang
+        // for a while (10s+) and then ended unanswered — the caller
+        // hung up after ringing, not a quick change of mind. There is
+        // no NO_ANSWER/CONGESTION constant in DisconnectCause; the
+        // ring duration is the signal.
+        val retryable = causeCode == DisconnectCause.BUSY ||
+            (ringSecs >= 10 && (causeCode == DisconnectCause.LOCAL || causeCode == DisconnectCause.REMOTE || causeCode == DisconnectCause.ERROR))
+        if (!retryable) return
         try {
             val context = inCallService?.applicationContext ?: return
             val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
