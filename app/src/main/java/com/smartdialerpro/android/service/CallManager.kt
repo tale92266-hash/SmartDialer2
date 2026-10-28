@@ -3,14 +3,18 @@ package com.smartdialerpro.android.service
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.CallAudioState
+import android.telecom.DisconnectCause
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
+import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
 import android.util.Log
 import android.widget.Toast
@@ -69,7 +73,7 @@ object CallManager {
     val recordingStatus = CallRecordingManager.statusMessage
 
     data class CallSnapshot(val call: Call, val state: Int, val number: String, val name: String?, val photoUri: String?, val simInfo: String?, val durationSeconds: Long, val isSelected: Boolean, val isConference: Boolean)
-    private data class MutableCallSnapshot(var state: Int, var number: String = "", var name: String? = null, var photoUri: String? = null, var simInfo: String? = null, var durationSeconds: Long = 0L)
+    private data class MutableCallSnapshot(var state: Int, var number: String = "", var name: String? = null, var photoUri: String? = null, var simInfo: String? = null, var durationSeconds: Long = 0L, var isOutgoing: Boolean = false)
 
     val callsFlow = trackedCalls
     val selectedCallFlow = MutableStateFlow<Call?>(null).also { flow ->
@@ -82,16 +86,31 @@ object CallManager {
     val selectedCall: Call?
         get() = currentCall
 
+    private var autoAnswerJob: Job? = null
+    private var flipController: FlipSilenceController? = null
+
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
             var shouldStopRecording = false
             var shouldAutoRecord = false
             var shouldVibrate = false
+            var shouldVibrateEnd = false
+            var shouldStartRingingFx = false
+            var shouldStopRingingFx = false
+            var shouldAutoAnswer = false
+            var redialNumber: String? = null
+            var redialName: String? = null
+            var redialCause = -1
+            var redialOutgoing = false
             synchronized(lock) {
                 val snapshot = calls[call] ?: return
                 val previousState = snapshot.state
                 snapshot.state = state
                 when (state) {
+                    Call.STATE_RINGING -> {
+                        shouldStartRingingFx = true
+                        shouldAutoAnswer = true
+                    }
                     Call.STATE_ACTIVE -> {
                         startDurationTickerLocked(call)
                         if (!autoRecordAttempted.contains(call)) {
@@ -100,8 +119,22 @@ object CallManager {
                         }
                         // Fresh answer (not a resume from hold): vibrate once if enabled.
                         if (previousState != Call.STATE_HOLDING) shouldVibrate = true
+                        shouldStopRingingFx = true
+                        AutoRedialManager.onCallConnected()
                     }
                     Call.STATE_HOLDING, Call.STATE_DISCONNECTING, Call.STATE_DISCONNECTED -> stopDurationTickerLocked(call)
+                }
+                if (state == Call.STATE_DISCONNECTED) {
+                    shouldStopRingingFx = true
+                    if (previousState != Call.STATE_RINGING && previousState != Call.STATE_NEW) shouldVibrateEnd = true
+                    redialNumber = snapshot.number.takeIf { it.isNotBlank() }
+                    redialName = snapshot.name
+                    redialCause = try {
+                        call.details?.disconnectCause?.code ?: -1
+                    } catch (_: Throwable) {
+                        -1
+                    }
+                    redialOutgoing = snapshot.isOutgoing
                 }
                 val selected = when {
                     state == Call.STATE_ACTIVE -> call
@@ -116,6 +149,12 @@ object CallManager {
             if (shouldStopRecording) stopRecordingFor(call)
             if (shouldAutoRecord) attemptAutoRecord(call)
             if (shouldVibrate) vibrateOnAnswer()
+            if (shouldVibrateEnd) vibrateOnEnd()
+            if (shouldStartRingingFx) startRingingEffects(call)
+            if (shouldStopRingingFx) stopRingingEffects()
+            if (state != Call.STATE_RINGING) cancelAutoAnswer()
+            if (shouldAutoAnswer) maybeAutoAnswer(call)
+            if (redialNumber != null) maybeAutoRedial(call, redialNumber!!, redialName, redialCause, redialOutgoing)
             inCallService?.updateNotification()
         }
 
@@ -134,7 +173,7 @@ object CallManager {
         synchronized(lock) {
             inCallService = service
             if (!calls.containsKey(call)) {
-                calls[call] = MutableCallSnapshot(call.state)
+                calls[call] = MutableCallSnapshot(call.state, isOutgoing = call.state != Call.STATE_RINGING)
                 call.registerCallback(callback)
             }
             updateDetailsLocked(call, call.details)
@@ -146,6 +185,10 @@ object CallManager {
                 else -> currentCall
             }
             publishLocked(selected)
+            val snapshot = calls[call]
+            if (snapshot?.isOutgoing == true && snapshot.number.isNotBlank()) {
+                AutoRedialManager.noteOutgoingCall(snapshot.number)
+            }
         }
     }
 
@@ -316,7 +359,38 @@ object CallManager {
 
     fun toggleMute() { val service = inCallService ?: return; val call = synchronized(lock) { currentCall } ?: return; if (call.state == Call.STATE_DISCONNECTED) return; try { service.setMuted(!_isMuted.value) } catch (t: Throwable) { Log.e(TAG, "Mute failed", t) } }
     fun toggleSpeaker() { val service = inCallService ?: return; val call = synchronized(lock) { currentCall } ?: return; if (call.state == Call.STATE_DISCONNECTED) return; try { service.setAudioRoute(if (_audioRoute.value == CallAudioState.ROUTE_SPEAKER) CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER) } catch (t: Throwable) { Log.e(TAG, "Audio route change failed", t) } }
-    fun playDtmf(digit: Char) { val call = synchronized(lock) { currentCall } ?: return; try { call.playDtmfTone(digit) } catch (t: Throwable) { Log.e(TAG, "DTMF start failed", t) } }
+    private var dtmfStopJob: Job? = null
+
+    /** Plays a DTMF tone for the configured length, then stops it.
+     * The length comes from Settings > General > "Dialpad tone length". */
+    fun playDtmf(digit: Char) {
+        val call = synchronized(lock) { currentCall } ?: return
+        val durationMs = try {
+            val context = inCallService?.applicationContext ?: return
+            when (context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE).getString("dtmf_tone_length", "normal")) {
+                "short" -> 120
+                "long" -> 500
+                else -> 250
+            }
+        } catch (_: Throwable) {
+            250
+        }
+        try {
+            call.playDtmfTone(digit)
+        } catch (t: Throwable) {
+            Log.e(TAG, "DTMF start failed", t)
+            return
+        }
+        dtmfStopJob?.cancel()
+        dtmfStopJob = scope.launch {
+            delay(durationMs.toLong())
+            try {
+                call.stopDtmfTone()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     fun stopDtmf() { val call = synchronized(lock) { currentCall } ?: return; try { call.stopDtmfTone() } catch (t: Throwable) { Log.e(TAG, "DTMF stop failed", t) } }
 
     fun toggleRecord(context: Context) {
@@ -345,6 +419,143 @@ object CallManager {
             vibrator.vibrate(VibrationEffect.createOneShot(80, VibrationEffect.DEFAULT_AMPLITUDE))
         } catch (t: Throwable) {
             Log.e(TAG, "Answer vibration failed", t)
+        }
+    }
+
+    private fun vibrateOnEnd() {
+        try {
+            val context = inCallService?.applicationContext ?: return
+            val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("vibrate_on_end", false)) return
+            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator ?: return
+            if (!vibrator.hasVibrator()) return
+            vibrator.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
+        } catch (t: Throwable) {
+            Log.e(TAG, "End vibration failed", t)
+        }
+    }
+
+    /** Flash + flip-to-silence while the phone is ringing. */
+    private fun startRingingEffects(call: Call) {
+        try {
+            val context = inCallService?.applicationContext ?: return
+            val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("flash_on_call", false) &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            ) {
+                FlashCallController.start(context)
+            }
+            if (prefs.getBoolean("flip_to_silence", false)) {
+                if (flipController == null) {
+                    flipController = FlipSilenceController(context) { silenceRinger() }
+                }
+                flipController?.start()
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Ringing effects start failed", t)
+        }
+    }
+
+    private fun stopRingingEffects() {
+        try {
+            FlashCallController.stop()
+        } catch (_: Throwable) {
+        }
+        try {
+            flipController?.stop()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun silenceRinger() {
+        try {
+            val context = inCallService?.applicationContext ?: return
+            val telecom = context.getSystemService(Context.TELECOM_SERVICE) as? TelecomManager ?: return
+            telecom.silenceRinger()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Silence ringer failed", t)
+        }
+    }
+
+    private fun cancelAutoAnswer() {
+        autoAnswerJob?.cancel()
+        autoAnswerJob = null
+    }
+
+    private fun maybeAutoAnswer(call: Call) {
+        cancelAutoAnswer()
+        try {
+            val context = inCallService?.applicationContext ?: return
+            val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("auto_answer_headset", false)) return
+            if (!isHeadsetConnected(context)) return
+            val delaySecs = prefs.getInt("auto_answer_delay_secs", 5).coerceIn(1, 30)
+            autoAnswerJob = scope.launch {
+                delay(delaySecs * 1000L)
+                try {
+                    if (call.state == Call.STATE_RINGING) call.answer(VideoProfile.STATE_AUDIO_ONLY)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Auto-answer failed", t)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Auto-answer setup failed", t)
+        }
+    }
+
+    private fun isHeadsetConnected(context: Context): Boolean {
+        return try {
+            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return false
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { device ->
+                device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                    device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                    device.type == AudioDeviceInfo.TYPE_BLE_BROADCAST ||
+                    device.type == AudioDeviceInfo.TYPE_HEARING_AID
+            }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun maybeAutoRedial(call: Call, number: String, name: String?, causeCode: Int, isOutgoing: Boolean) {
+        if (!isOutgoing) return
+        if (causeCode != DisconnectCause.BUSY &&
+            causeCode != DisconnectCause.NO_ANSWER &&
+            causeCode != DisconnectCause.CONGESTION
+        ) return
+        try {
+            val context = inCallService?.applicationContext ?: return
+            val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("auto_redial", false)) return
+            val totalAttempts = prefs.getInt("auto_redial_attempts", 3).coerceIn(1, 5)
+            val gapSecs = prefs.getInt("auto_redial_gap", 30).coerceIn(10, 120)
+            val remaining = AutoRedialManager.chainRemainingFor(number).takeIf { it >= 0 } ?: totalAttempts
+            if (remaining <= 0) return
+            val handleId = try {
+                call.details?.accountHandle?.id
+            } catch (_: Throwable) {
+                null
+            }
+            AutoRedialManager.schedule(context, number, name?.takeIf { it.isNotBlank() } ?: number, handleId, remaining, totalAttempts, gapSecs)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Auto-redial setup failed", t)
+        }
+    }
+
+    /** Sends a quick-response SMS after declining a call. The caller
+     * owns the SEND_SMS permission request; false means "not sent". */
+    fun sendQuickResponseSms(number: String, text: String): Boolean {
+        return try {
+            val context = inCallService?.applicationContext ?: return false
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) return false
+            if (number.isBlank() || text.isBlank()) return false
+            SmsManager.getDefault().sendTextMessage(number, null, text, null, null)
+            true
+        } catch (t: Throwable) {
+            Log.e(TAG, "Quick response SMS failed", t)
+            false
         }
     }
 

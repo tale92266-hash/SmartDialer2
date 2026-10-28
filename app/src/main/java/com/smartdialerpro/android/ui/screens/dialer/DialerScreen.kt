@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.smartdialerpro.android.data.RecentCall
 import com.smartdialerpro.android.data.SimInfo
+import com.smartdialerpro.android.ui.components.SimChooserDialog
 import com.smartdialerpro.android.viewmodel.DialerViewModel
 import kotlinx.coroutines.launch
 
@@ -66,10 +67,20 @@ fun DialerScreen(
     val selectedSimIndex = sims.indexOfFirst { it.accountHandle?.id == selectedAccountId }
     val selectedSim = sims.getOrNull(selectedSimIndex)
 
+    var pendingAskNumber by remember { mutableStateOf<String?>(null) }
+    fun requestCall(callNumber: String) {
+        val mode = prefs.getInt("default_sim_mode", 1)
+        if (mode == 2 && sims.size > 1) {
+            pendingAskNumber = callNumber
+        } else {
+            placeRealCall(context, callNumber, selectedSim)
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         viewModel.loadSimCards(context)
         val canCall = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
-        if (canCall && number.isNotEmpty()) placeRealCall(context, number, selectedSim)
+        if (canCall && number.isNotEmpty()) requestCall(number)
         else if (!canCall) coroutineScope.launch { snackbarHostState.showSnackbar("Call permission denied. Open Settings to allow phone calls.") }
     }
 
@@ -148,8 +159,20 @@ fun DialerScreen(
                 return@DialerActionRow
             }
             val hasCall = ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
-            if (hasCall) placeRealCall(context, number, selectedSim)
+            if (hasCall) requestCall(number)
             else permissionLauncher.launch(arrayOf(Manifest.permission.CALL_PHONE))
+        }
+
+        pendingAskNumber?.let { askNumber ->
+            SimChooserDialog(
+                number = askNumber,
+                sims = sims,
+                onDismiss = { pendingAskNumber = null },
+                onPick = { sim ->
+                    pendingAskNumber = null
+                    placeRealCall(context, askNumber, sim)
+                }
+            )
         }
     }
 }
@@ -209,10 +232,11 @@ private fun formatPhoneNumber(raw: String): String {
 fun placeRealCall(context: Context, number: String, selectedSim: SimInfo?) {
     val cleanNumber = number.filter { it.isDigit() || it == '+' || it == '*' || it == '#' || it == ',' || it == ';' }
     if (cleanNumber.isBlank()) return
+    com.smartdialerpro.android.service.AutoRedialManager.cancel()
     try {
         val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(cleanNumber)}")).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            selectedSim?.accountHandle?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
+            (selectedSim?.accountHandle ?: com.smartdialerpro.android.util.Utils.resolveDefaultSimHandle(context))?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
         }
         context.startActivity(intent)
     } catch (t: Throwable) {

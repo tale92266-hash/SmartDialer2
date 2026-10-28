@@ -798,13 +798,14 @@ private fun inferSlotFromAccount(account: PhoneAccount): Int {
 private fun placeRealCall(context: Context, number: String, selectedSim: SimInfo?) {
     val cleanNumber = number.filter { it.isDigit() || it == '+' || it == '*' || it == '#' || it == ',' || it == ';' }
     if (cleanNumber.isBlank()) return
+    com.smartdialerpro.android.service.AutoRedialManager.cancel()
     try {
         val isUssd = cleanNumber.contains("#") || (cleanNumber.startsWith("*") && cleanNumber.endsWith("#"))
         val action = if (isUssd) Intent.ACTION_DIAL else Intent.ACTION_CALL
         val intent = Intent(action, Uri.parse("tel:${Uri.encode(cleanNumber)}")).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
             if (!isUssd) {
-                selectedSim?.accountHandle?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
+                (selectedSim?.accountHandle ?: Utils.resolveDefaultSimHandle(context))?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
             }
         }
         context.startActivity(intent)

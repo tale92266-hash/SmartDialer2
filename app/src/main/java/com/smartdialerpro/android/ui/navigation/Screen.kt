@@ -10,6 +10,7 @@ import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.GroupAdd
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Message
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.Phone
@@ -34,6 +35,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object SettingsPrivacy : Screen("settings_privacy", "Privacy & Blocked", Icons.Rounded.Security)
     object SettingsSystem : Screen("settings_system", "System & About", Icons.Rounded.Info)
     object SettingsMagicCall : Screen("settings_magic_call", "Magic Call", Icons.Rounded.AutoAwesome)
+    object QuickResponses : Screen("quick_responses", "Quick Responses", Icons.Rounded.Message)
     object ContactProfile : Screen("contact_profile/{number}", "Profile", Icons.Rounded.Person) {
         fun createRoute(number: String) = "contact_profile/$number"
     }

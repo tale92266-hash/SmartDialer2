@@ -136,7 +136,7 @@ object Utils {
         val intent = Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(cleaned)}")).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        resolveSelectedPhoneAccount(context)?.let { handle ->
+        (resolveDefaultSimHandle(context) ?: resolveSelectedPhoneAccount(context))?.let { handle ->
             intent.putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
         }
 
@@ -157,6 +157,26 @@ object Utils {
     } catch (t: Throwable) {
         Log.e(TAG, "Unable to open dialer", t)
         false
+    }
+
+    /**
+     * The handle for the Settings default-SIM mode (SIM 1 / SIM 2),
+     * resolved by pure list index into the call-capable accounts —
+     * the same rule the call-log writer and reader use. Null for
+     * "Ask every time" (the caller shows a chooser) or when the
+     * requested slot has no account.
+     */
+    fun resolveDefaultSimHandle(context: Context): android.telecom.PhoneAccountHandle? {
+        return try {
+            val mode = context.getSharedPreferences(DIALER_PREFS, Context.MODE_PRIVATE)
+                .getInt("default_sim_mode", 1)
+            if (mode != 0 && mode != 1) return null
+            val telecom = context.getSystemService(TelecomManager::class.java) ?: return null
+            telecom.callCapablePhoneAccounts.getOrNull(mode)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Default SIM handle unavailable", t)
+            null
+        }
     }
 
     private fun resolveSelectedPhoneAccount(context: Context): android.telecom.PhoneAccountHandle? {

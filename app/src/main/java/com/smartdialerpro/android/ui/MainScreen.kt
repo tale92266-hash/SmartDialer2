@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Phone
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,6 +49,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.repository.ContactsRepository
+import com.smartdialerpro.android.service.AutoRedialManager
 import com.smartdialerpro.android.service.CallManager
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.ui.screens.contacts.AddToExistingScreen
@@ -62,6 +64,7 @@ import kotlinx.coroutines.delay
 import com.smartdialerpro.android.ui.screens.profile.ContactProfileScreen
 import com.smartdialerpro.android.ui.screens.search.UniversalSearchScreen
 import com.smartdialerpro.android.ui.screens.settings.BlockedNumbersScreen
+import com.smartdialerpro.android.ui.screens.settings.QuickResponsesScreen
 import com.smartdialerpro.android.ui.screens.settings.RecordingsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsCallsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsGeneralScreen
@@ -184,6 +187,7 @@ fun MainScreen() {
             val callerName by CallManager.callerName.collectAsState()
             val fakeCallActive by FakeCallSession.activeFlow.collectAsState()
             val fakeCallConnected by FakeCallSession.connectedFlow.collectAsState()
+            val pendingRedial by AutoRedialManager.pending.collectAsState()
             if (callState != Call.STATE_DISCONNECTED && callState != Call.STATE_NEW) {
                 val label = callerName?.takeIf { it.isNotBlank() } ?: number.ifBlank { "Ongoing call" }
                 Row(
@@ -252,6 +256,34 @@ fun MainScreen() {
                     )
                     Text("Return", color = MaterialTheme.colorScheme.onPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
+            } else if (pendingRedial != null) {
+                // Auto-redial countdown: tapping Cancel stops the chain.
+                val redial = pendingRedial!!
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.secondary, MaterialTheme.colorScheme.tertiary)))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Rounded.Refresh, null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        "Redialing ${redial.displayName} in ${redial.secondsLeft}s (attempt ${redial.attempt} of ${redial.totalAttempts})",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1
+                    )
+                    Text(
+                        "Cancel",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { AutoRedialManager.cancel() }
+                    )
+                }
             }
             NavHost(
                 navController = navController,
@@ -315,6 +347,9 @@ fun MainScreen() {
                 }
                 composable(Screen.SettingsMagicCall.route) {
                     SettingsMagicCallScreen(navController)
+                }
+                composable(Screen.QuickResponses.route) {
+                    QuickResponsesScreen(navController)
                 }
                 composable(
                     route = Screen.ContactEditor.route,

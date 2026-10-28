@@ -15,6 +15,8 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,16 +42,40 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.smartdialerpro.android.MainActivity
 import com.smartdialerpro.android.service.CallManager
+import com.smartdialerpro.android.service.CallProximityController
 import com.smartdialerpro.android.ui.theme.CallAnswerGreen
 import com.smartdialerpro.android.ui.theme.CallEndRed
 import com.smartdialerpro.android.ui.theme.SmartDialerTheme
 import com.smartdialerpro.android.util.Utils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class InCallActivity : ComponentActivity() {
     private val keypadOpenState = mutableStateOf(false)
+    private var proximityController: CallProximityController? = null
+
+    private fun applyProximity(state: Int) {
+        try {
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                proximityController?.stop()
+                return
+            }
+            val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("proximity_screen_off", true)) {
+                proximityController?.stop()
+                return
+            }
+            if (state == Call.STATE_DIALING || state == Call.STATE_CONNECTING || state == Call.STATE_ACTIVE) {
+                if (proximityController == null) proximityController = CallProximityController(this)
+                proximityController?.start()
+            } else {
+                proximityController?.stop()
+            }
+        } catch (_: Throwable) {
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,11 +109,15 @@ class InCallActivity : ComponentActivity() {
                 )
             }
         }
+        lifecycleScope.launch {
+            CallManager.callState.collect { state -> applyProximity(state) }
+        }
     }
 
     override fun onResume() {
         super.onResume()
         CallManager.inCallUiForeground = true
+        applyProximity(CallManager.callState.value)
         CallManager.inCallService?.updateNotification()
         // Stale-call watchdog: returning to this activity with no tracked
         // call and no live state means there is nothing to show.
@@ -98,11 +128,16 @@ class InCallActivity : ComponentActivity() {
 
     override fun onPause() {
         CallManager.inCallUiForeground = false
+        try {
+            proximityController?.stop()
+        } catch (_: Throwable) {
+        }
         CallManager.inCallService?.updateNotification()
         super.onPause()
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PremiumInCallScreen(
     onFinish: () -> Unit,
@@ -125,6 +160,29 @@ fun PremiumInCallScreen(
     var contactBitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
     var pendingRecordAfterPermission by remember { mutableStateOf(false) }
     var dtmfDigits by remember { mutableStateOf("") }
+    var showQuickResponses by remember { mutableStateOf(false) }
+    var pendingQuickResponse by remember { mutableStateOf<String?>(null) }
+    val quickResponses = remember {
+        val prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        prefs.getStringSet("quick_responses", null)?.toList()?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
+            ?: listOf("Can't talk right now", "I'll call you back", "I'm in a meeting", "I'm driving")
+    }
+
+    val smsPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val text = pendingQuickResponse
+        pendingQuickResponse = null
+        if (granted && text != null) {
+            CallManager.reject()
+            val sent = CallManager.sendQuickResponseSms(number, text)
+            android.widget.Toast.makeText(
+                context,
+                if (sent) "Reply sent" else "Could not send reply",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        } else if (!granted) {
+            android.widget.Toast.makeText(context, "SMS permission needed to send a reply", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // A fresh call starts with an empty keypad input.
     LaunchedEffect(callState) {
@@ -219,13 +277,23 @@ fun PremiumInCallScreen(
             }
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 when {
-                    isRinging -> IncomingCallControls({ CallManager.reject() }, { CallManager.answer() })
+                    isRinging -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        IncomingCallControls({ CallManager.reject() }, { CallManager.answer() })
+                        Spacer(Modifier.height(12.dp))
+                        TextButton(onClick = { showQuickResponses = true }) {
+                            Text(
+                                "Reply with message",
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
                     keypadOpen -> InCallDtmfPad(
                         digits = dtmfDigits,
                         onDigit = { digit ->
                             dtmfDigits += digit
                             CallManager.playDtmf(digit)
-                            CallManager.stopDtmf()
                         },
                         onBackspace = { dtmfDigits = dtmfDigits.dropLast(1) },
                         onClose = { onKeypadOpenChange(false) }
@@ -257,6 +325,53 @@ fun PremiumInCallScreen(
                 }
                 Spacer(Modifier.height(20.dp))
                 if (!isRinging && callState != Call.STATE_DISCONNECTED) EndCallButton()
+            }
+        }
+
+        if (showQuickResponses) {
+            ModalBottomSheet(onDismissRequest = { showQuickResponses = false }) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
+                    Text(
+                        "Reply with message",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    quickResponses.forEach { template ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    showQuickResponses = false
+                                    pendingQuickResponse = template
+                                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED) {
+                                        CallManager.reject()
+                                        val sent = CallManager.sendQuickResponseSms(number, template)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            if (sent) "Reply sent" else "Could not send reply",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                        pendingQuickResponse = null
+                                    } else {
+                                        smsPermissionLauncher.launch(Manifest.permission.SEND_SMS)
+                                    }
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Rounded.Call,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(14.dp))
+                            Text(template, fontSize = 15.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
             }
         }
 

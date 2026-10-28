@@ -1,15 +1,18 @@
 package com.smartdialerpro.android.ui.screens.settings
 
 import android.Manifest
+import android.app.Activity
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.RingtoneManager
 import android.net.Uri
 import android.provider.CallLog
 import android.provider.Settings
 import android.telecom.TelecomManager
 import android.telephony.SubscriptionManager
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -31,6 +34,7 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.smartdialerpro.android.service.AmbientSoundManager
 import com.smartdialerpro.android.service.FakeCallSim
+import com.smartdialerpro.android.service.SmartDialerScreeningService
 import com.smartdialerpro.android.ui.components.CompactTopBar
 import com.smartdialerpro.android.ui.navigation.Screen
 
@@ -184,6 +188,8 @@ fun SettingsGeneralScreen(navController: NavController? = null) {
     var dtmfTone by remember { mutableStateOf(prefs.getBoolean("dialer_tones", true)) }
     var showOnlyContacts by remember { mutableStateOf(prefs.getBoolean("show_only_contacts", false)) }
     var openDialpadOnLaunch by remember { mutableStateOf(prefs.getBoolean("open_dialpad_on_launch", false)) }
+    var dtmfLength by remember { mutableStateOf(prefs.getString("dtmf_tone_length", "normal") ?: "normal") }
+    var showDtmfDialog by remember { mutableStateOf(false) }
     SettingsSubScreenScaffold(title = "General", onBack = { navController?.popBackStack() }) {
         SettingSwitchRow(
             icon = Icons.Rounded.Vibration,
@@ -202,6 +208,30 @@ fun SettingsGeneralScreen(navController: NavController? = null) {
         ) {
             dtmfTone = it
             prefs.edit().putBoolean("dialer_tones", it).apply()
+        }
+        SettingRow(
+            icon = Icons.Rounded.Dialpad,
+            title = "Dialpad tone length",
+            subtitle = when (dtmfLength) {
+                "short" -> "Short tone"
+                "long" -> "Long tone (helps with IVR menus)"
+                else -> "Normal tone"
+            }
+        ) { showDtmfDialog = true }
+        if (showDtmfDialog) {
+            val lengths = listOf("short", "normal", "long")
+            val labels = listOf("Short", "Normal", "Long")
+            SingleChoiceDialog(
+                title = "Dialpad tone length",
+                options = labels,
+                selected = lengths.indexOf(dtmfLength).takeIf { it >= 0 } ?: 1,
+                onDismiss = { showDtmfDialog = false },
+                onSelect = {
+                    dtmfLength = lengths[it]
+                    prefs.edit().putString("dtmf_tone_length", lengths[it]).apply()
+                    showDtmfDialog = false
+                }
+            )
         }
         SettingSwitchRow(
             icon = Icons.Rounded.Contacts,
@@ -230,9 +260,76 @@ fun SettingsCallsScreen(navController: NavController? = null) {
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     var confirmCall by remember { mutableStateOf(prefs.getBoolean("confirm_call", false)) }
     var vibrateOnAnswer by remember { mutableStateOf(prefs.getBoolean("vibrate_on_answer", false)) }
+    var vibrateOnEnd by remember { mutableStateOf(prefs.getBoolean("vibrate_on_end", false)) }
+    var proximityOff by remember { mutableStateOf(prefs.getBoolean("proximity_screen_off", true)) }
+    var flipToSilence by remember { mutableStateOf(prefs.getBoolean("flip_to_silence", false)) }
+    var flashOnCall by remember { mutableStateOf(prefs.getBoolean("flash_on_call", false)) }
+    var pendingFlashAfterPermission by remember { mutableStateOf(false) }
+    var autoAnswer by remember { mutableStateOf(prefs.getBoolean("auto_answer_headset", false)) }
+    var autoAnswerDelay by remember { mutableStateOf(prefs.getInt("auto_answer_delay_secs", 5)) }
+    var autoRedial by remember { mutableStateOf(prefs.getBoolean("auto_redial", false)) }
+    var redialAttempts by remember { mutableStateOf(prefs.getInt("auto_redial_attempts", 3)) }
+    var redialGap by remember { mutableStateOf(prefs.getInt("auto_redial_gap", 30)) }
     val dialerPrefs = remember { context.getSharedPreferences(DIALER_PREFS, Context.MODE_PRIVATE) }
     val selectedAccountId by remember { mutableStateOf(dialerPrefs.getString(KEY_ACCOUNT_ID, null)) }
+    var simMode by remember { mutableStateOf(dialerPrefs.getInt("default_sim_mode", 1)) }
+    var showSimModeDialog by remember { mutableStateOf(false) }
+    var showDelayDialog by remember { mutableStateOf(false) }
+    var showAttemptsDialog by remember { mutableStateOf(false) }
+    var showGapDialog by remember { mutableStateOf(false) }
+    var ringtoneTitle by remember { mutableStateOf(currentRingtoneTitle(context)) }
+    var pendingRingtoneAfterWriteSettings by remember { mutableStateOf(false) }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && pendingFlashAfterPermission) {
+            flashOnCall = true
+            prefs.edit().putBoolean("flash_on_call", true).apply()
+        } else if (!granted) {
+            ToastHelper.show(context, "Camera permission is needed for flash alerts.")
+        }
+        pendingFlashAfterPermission = false
+    }
+
+    val ringtonePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            try {
+                val picked = result.data?.getParcelableExtra(RingtoneManager.EXTRA_RINGTONE_PICKED_URI) as? Uri
+                if (picked != null) {
+                    RingtoneManager.setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE, picked)
+                    ringtoneTitle = currentRingtoneTitle(context)
+                }
+            } catch (t: Throwable) {
+                ToastHelper.show(context, "Could not change the ringtone.")
+            }
+        }
+    }
+
+    val writeSettingsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (Settings.System.canWrite(context)) {
+            if (pendingRingtoneAfterWriteSettings) openRingtonePicker(context, ringtonePickerLauncher)
+            pendingRingtoneAfterWriteSettings = false
+        } else {
+            ToastHelper.show(context, "Please allow modifying system settings to change the ringtone.")
+        }
+    }
+
+    fun openPicker() {
+        if (Settings.System.canWrite(context)) {
+            openRingtonePicker(context, ringtonePickerLauncher)
+        } else {
+            pendingRingtoneAfterWriteSettings = true
+            try {
+                writeSettingsLauncher.launch(
+                    Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:${context.packageName}"))
+                )
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Please allow modifying system settings first.")
+            }
+        }
+    }
+
     SettingsSubScreenScaffold(title = "Calls & SIM", onBack = { navController?.popBackStack() }) {
+        SectionTitle("SIM & carrier")
         SettingRow(
             icon = Icons.Rounded.SimCard,
             title = "SIM selection",
@@ -240,6 +337,42 @@ fun SettingsCallsScreen(navController: NavController? = null) {
         ) {
             ToastHelper.show(context, "You can select your preferred SIM directly in the Dialer or Contact Profile.")
         }
+        SettingRow(
+            icon = Icons.Rounded.SimCard,
+            title = "Default SIM for calls",
+            subtitle = when (simMode) {
+                0 -> "SIM 1 always"
+                2 -> "Ask every time"
+                else -> "SIM 2 always"
+            }
+        ) { showSimModeDialog = true }
+        SettingRow(
+            icon = Icons.Rounded.Forward,
+            title = "Call forwarding",
+            subtitle = "Forward calls to another number (carrier setting)"
+        ) { openSystemPage(context, TelecomManager.ACTION_SHOW_CALL_SETTINGS) }
+        SettingRow(
+            icon = Icons.Rounded.Schedule,
+            title = "Call waiting",
+            subtitle = "Be notified of a second incoming call (carrier setting)"
+        ) { openSystemPage(context, TelecomManager.ACTION_SHOW_CALL_SETTINGS) }
+        SettingRow(
+            icon = Icons.Rounded.Badge,
+            title = "Caller ID",
+            subtitle = "Show or hide your number on outgoing calls (carrier setting)"
+        ) { openSystemPage(context, TelecomManager.ACTION_SHOW_CALL_SETTINGS) }
+        SettingRow(
+            icon = Icons.Rounded.Wifi,
+            title = "Wi-Fi calling",
+            subtitle = "Call over Wi-Fi when the mobile signal is weak"
+        ) { openSystemPage(context, "android.settings.WIFI_CALLING_SETTINGS", TelecomManager.ACTION_SHOW_CALL_SETTINGS) }
+        SettingRow(
+            icon = Icons.Rounded.Voicemail,
+            title = "Voicemail",
+            subtitle = "Voicemail number and notifications"
+        ) { openSystemPage(context, "android.settings.VOICEMAIL_SETTINGS", TelecomManager.ACTION_SHOW_CALL_SETTINGS) }
+
+        SectionTitle("Answering & ending")
         SettingSwitchRow(
             icon = Icons.Rounded.Call,
             title = "Confirm before calling",
@@ -258,7 +391,248 @@ fun SettingsCallsScreen(navController: NavController? = null) {
             vibrateOnAnswer = it
             prefs.edit().putBoolean("vibrate_on_answer", it).apply()
         }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Vibration,
+            title = "Vibrate when call ends",
+            subtitle = "Short vibration when the call disconnects",
+            checked = vibrateOnEnd
+        ) {
+            vibrateOnEnd = it
+            prefs.edit().putBoolean("vibrate_on_end", it).apply()
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.ScreenRotation,
+            title = "Flip to silence",
+            subtitle = "Turn the phone face-down to silence an incoming call",
+            checked = flipToSilence
+        ) {
+            flipToSilence = it
+            prefs.edit().putBoolean("flip_to_silence", it).apply()
+        }
+        SettingRow(
+            icon = Icons.Rounded.PowerSettingsNew,
+            title = "Power button ends call",
+            subtitle = "Opens the system Accessibility setting"
+        ) { openSystemPage(context, Settings.ACTION_ACCESSIBILITY_SETTINGS) }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Headphones,
+            title = "Auto-answer on headset",
+            subtitle = "Answer automatically when a headset or car Bluetooth is connected",
+            checked = autoAnswer
+        ) {
+            autoAnswer = it
+            prefs.edit().putBoolean("auto_answer_headset", it).apply()
+        }
+        SettingRow(
+            icon = Icons.Rounded.Schedule,
+            title = "Auto-answer delay",
+            subtitle = "$autoAnswerDelay seconds after the call starts ringing"
+        ) { showDelayDialog = true }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Refresh,
+            title = "Auto redial",
+            subtitle = "Redial automatically when the number is busy or unanswered",
+            checked = autoRedial
+        ) {
+            autoRedial = it
+            prefs.edit().putBoolean("auto_redial", it).apply()
+        }
+        SettingRow(
+            icon = Icons.Rounded.Refresh,
+            title = "Redial attempts",
+            subtitle = "$redialAttempts attempts"
+        ) { showAttemptsDialog = true }
+        SettingRow(
+            icon = Icons.Rounded.Schedule,
+            title = "Redial gap",
+            subtitle = "Wait $redialGap seconds between attempts"
+        ) { showGapDialog = true }
+        SettingRow(
+            icon = Icons.Rounded.Message,
+            title = "Quick responses",
+            subtitle = "Edit the SMS replies offered when declining a call"
+        ) {
+            if (navController != null) navController.navigate(Screen.QuickResponses.route)
+            else ToastHelper.show(context, "Navigation controller unavailable")
+        }
+
+        SectionTitle("During the call")
+        SettingSwitchRow(
+            icon = Icons.Rounded.Sensors,
+            title = "Turn off screen near ear",
+            subtitle = "Proximity sensor blanks the screen during calls",
+            checked = proximityOff
+        ) {
+            proximityOff = it
+            prefs.edit().putBoolean("proximity_screen_off", it).apply()
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.FlashOn,
+            title = "Flash on incoming call",
+            subtitle = "Blink the camera flash while the phone rings",
+            checked = flashOnCall
+        ) {
+            if (it) {
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                    flashOnCall = true
+                    prefs.edit().putBoolean("flash_on_call", true).apply()
+                } else {
+                    pendingFlashAfterPermission = true
+                    cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+            } else {
+                flashOnCall = false
+                prefs.edit().putBoolean("flash_on_call", false).apply()
+            }
+        }
+        SettingRow(
+            icon = Icons.Rounded.MusicNote,
+            title = "Phone ringtone",
+            subtitle = ringtoneTitle
+        ) { openPicker() }
+
+        SectionTitle("Accessibility")
+        SettingRow(
+            icon = Icons.Rounded.AccessibilityNew,
+            title = "TTY mode",
+            subtitle = "Text telephone mode for incoming and outgoing calls"
+        ) { openSystemPage(context, "android.settings.TTY_SETTINGS", Settings.ACTION_ACCESSIBILITY_SETTINGS) }
+        SettingRow(
+            icon = Icons.Rounded.HearingAid,
+            title = "Hearing aids",
+            subtitle = "Bluetooth hearing aid and compatibility settings"
+        ) { openSystemPage(context, "android.settings.HEARING_AID_SETTINGS", Settings.ACTION_ACCESSIBILITY_SETTINGS) }
+
+        if (showSimModeDialog) {
+            SingleChoiceDialog(
+                title = "Default SIM for calls",
+                options = listOf("SIM 1 always", "SIM 2 always", "Ask every time"),
+                selected = simMode,
+                onDismiss = { showSimModeDialog = false },
+                onSelect = {
+                    simMode = it
+                    dialerPrefs.edit().putInt("default_sim_mode", it).apply()
+                    showSimModeDialog = false
+                }
+            )
+        }
+        if (showDelayDialog) {
+            val delays = listOf(3, 5, 10)
+            SingleChoiceDialog(
+                title = "Auto-answer delay",
+                options = delays.map { "$it seconds" },
+                selected = delays.indexOf(autoAnswerDelay).takeIf { it >= 0 } ?: 1,
+                onDismiss = { showDelayDialog = false },
+                onSelect = {
+                    autoAnswerDelay = delays[it]
+                    prefs.edit().putInt("auto_answer_delay_secs", delays[it]).apply()
+                    showDelayDialog = false
+                }
+            )
+        }
+        if (showAttemptsDialog) {
+            val attempts = listOf(2, 3, 5)
+            SingleChoiceDialog(
+                title = "Redial attempts",
+                options = attempts.map { "$it attempts" },
+                selected = attempts.indexOf(redialAttempts).takeIf { it >= 0 } ?: 1,
+                onDismiss = { showAttemptsDialog = false },
+                onSelect = {
+                    redialAttempts = attempts[it]
+                    prefs.edit().putInt("auto_redial_attempts", attempts[it]).apply()
+                    showAttemptsDialog = false
+                }
+            )
+        }
+        if (showGapDialog) {
+            val gaps = listOf(30, 60, 90)
+            SingleChoiceDialog(
+                title = "Redial gap",
+                options = gaps.map { "$it seconds" },
+                selected = gaps.indexOf(redialGap).takeIf { it >= 0 } ?: 0,
+                onDismiss = { showGapDialog = false },
+                onSelect = {
+                    redialGap = gaps[it]
+                    prefs.edit().putInt("auto_redial_gap", gaps[it]).apply()
+                    showGapDialog = false
+                }
+            )
+        }
     }
+}
+
+private fun openSystemPage(context: Context, action: String, fallbackAction: String = Settings.ACTION_ACCESSIBILITY_SETTINGS) {
+    try {
+        val intent = Intent(action)
+        if (intent.resolveActivity(context.packageManager) != null) {
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
+        context.startActivity(Intent(fallbackAction).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: Throwable) {
+        ToastHelper.show(context, "Could not open system settings.")
+    }
+}
+
+private fun currentRingtoneTitle(context: Context): String {
+    return try {
+        val uri = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE)
+            ?: return "Default ringtone"
+        RingtoneManager.getRingtone(context, uri)?.getTitle(context) ?: "Default ringtone"
+    } catch (_: Throwable) {
+        "Default ringtone"
+    }
+}
+
+private fun openRingtonePicker(
+    context: Context,
+    launcher: ActivityResultLauncher<Intent>
+) {
+    try {
+        val existing = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE)
+        val intent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_RINGTONE)
+            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Phone ringtone")
+            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+            if (existing != null) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, existing)
+        }
+        launcher.launch(intent)
+    } catch (_: Throwable) {
+        ToastHelper.show(context, "Could not open the ringtone picker.")
+    }
+}
+
+@Composable
+private fun SingleChoiceDialog(
+    title: String,
+    options: List<String>,
+    selected: Int,
+    onDismiss: () -> Unit,
+    onSelect: (Int) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEachIndexed { index, label ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(index) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = index == selected, onClick = { onSelect(index) })
+                        Spacer(Modifier.width(8.dp))
+                        Text(label)
+                    }
+                }
+            }
+        },
+        confirmButton = {}
+    )
 }
 
 @Composable
@@ -304,6 +678,35 @@ fun SettingsRecordingScreen(navController: NavController? = null) {
 @Composable
 fun SettingsPrivacyScreen(navController: NavController? = null) {
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    val roleManager = remember { context.getSystemService(RoleManager::class.java) }
+    var silenceUnknown by remember { mutableStateOf(prefs.getBoolean(SmartDialerScreeningService.KEY_SILENCE_UNKNOWN, false)) }
+    var roleHeld by remember {
+        mutableStateOf(
+            try {
+                roleManager?.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) == true
+            } catch (_: Throwable) {
+                false
+            }
+        )
+    }
+    var pendingSilenceAfterRole by remember { mutableStateOf(false) }
+    val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val held = try {
+            roleManager?.isRoleHeld(RoleManager.ROLE_CALL_SCREENING) == true
+        } catch (_: Throwable) {
+            false
+        }
+        roleHeld = held
+        if (held && pendingSilenceAfterRole) {
+            silenceUnknown = true
+            prefs.edit().putBoolean(SmartDialerScreeningService.KEY_SILENCE_UNKNOWN, true).apply()
+        } else if (!held && pendingSilenceAfterRole) {
+            ToastHelper.show(context, "Caller ID & spam role is needed to silence unknown callers.")
+        }
+        pendingSilenceAfterRole = false
+    }
+
     SettingsSubScreenScaffold(title = "Privacy & Blocked", onBack = { navController?.popBackStack() }) {
         SettingRow(
             icon = Icons.Rounded.Block,
@@ -314,6 +717,44 @@ fun SettingsPrivacyScreen(navController: NavController? = null) {
                 navController.navigate(Screen.BlockedNumbers.route)
             } else {
                 ToastHelper.show(context, "Navigation controller unavailable")
+            }
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.Shield,
+            title = "Silence unknown callers",
+            subtitle = "Calls from numbers not in your contacts never ring",
+            checked = silenceUnknown
+        ) {
+            if (it) {
+                if (roleHeld) {
+                    silenceUnknown = true
+                    prefs.edit().putBoolean(SmartDialerScreeningService.KEY_SILENCE_UNKNOWN, true).apply()
+                } else {
+                    pendingSilenceAfterRole = true
+                    try {
+                        val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)
+                        if (intent != null) roleLauncher.launch(intent)
+                        else ToastHelper.show(context, "Caller ID & spam role is not available on this phone.")
+                    } catch (_: Throwable) {
+                        ToastHelper.show(context, "Could not request the Caller ID & spam role.")
+                    }
+                }
+            } else {
+                silenceUnknown = false
+                prefs.edit().putBoolean(SmartDialerScreeningService.KEY_SILENCE_UNKNOWN, false).apply()
+            }
+        }
+        SettingRow(
+            icon = Icons.Rounded.Security,
+            title = "Caller ID & spam role",
+            subtitle = if (roleHeld) "Granted — SmartDialer can screen incoming calls" else "Not granted — tap to allow call screening"
+        ) {
+            try {
+                val intent = roleManager?.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)
+                if (intent != null) roleLauncher.launch(intent)
+                else ToastHelper.show(context, "Caller ID & spam role is not available on this phone.")
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Could not request the Caller ID & spam role.")
             }
         }
         SettingRow(

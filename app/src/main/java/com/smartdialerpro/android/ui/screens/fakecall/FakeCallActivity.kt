@@ -1,7 +1,9 @@
 package com.smartdialerpro.android.ui.screens.fakecall
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.media.ToneGenerator
@@ -10,10 +12,13 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.ContactsContract
 import android.telephony.SubscriptionManager
 import android.view.WindowManager
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -40,6 +45,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.smartdialerpro.android.MainActivity
 import com.smartdialerpro.android.service.AmbientSoundManager
+import com.smartdialerpro.android.service.CallProximityController
 import com.smartdialerpro.android.service.FakeCallActionHandler
 import com.smartdialerpro.android.service.FakeCallEngine
 import com.smartdialerpro.android.service.FakeCallEngineListener
@@ -48,6 +54,8 @@ import com.smartdialerpro.android.service.FakeCallService
 import com.smartdialerpro.android.service.FakeCallSession
 import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.service.FakeCallState
+import com.smartdialerpro.android.service.FlashCallController
+import com.smartdialerpro.android.service.FlipSilenceController
 import com.smartdialerpro.android.ui.screens.incall.ActiveCallControls
 import com.smartdialerpro.android.ui.screens.incall.EndCallButton
 import com.smartdialerpro.android.ui.screens.incall.InCallDtmfPad
@@ -99,6 +107,8 @@ class FakeCallActivity : ComponentActivity() {
     private var number: String = ""
     private var durationSecs: Int = 0
     private var simSlot: Int = 0
+    private var proximityController: CallProximityController? = null
+    private var flipController: FlipSilenceController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -154,10 +164,18 @@ class FakeCallActivity : ComponentActivity() {
                 callState.value = state
                 statusText.value = status
                 when (state) {
-                    FakeCallState.RINGING -> startRinging()
-                    FakeCallState.ACTIVE -> onConnected()
+                    FakeCallState.RINGING -> {
+                        startRinging()
+                        startRingingEffects()
+                    }
+                    FakeCallState.ACTIVE -> {
+                        stopRingingEffects()
+                        onConnected()
+                    }
                     FakeCallState.DISCONNECTED -> {
                         stopRinging()
+                        stopRingingEffects()
+                        stopProximity()
                         AmbientSoundManager.getInstance(this@FakeCallActivity).stopCallAudio()
                     }
                     else -> Unit
@@ -206,11 +224,18 @@ class FakeCallActivity : ComponentActivity() {
         super.onResume()
         FakeCallSession.uiForeground = true
         FakeCallService.updateState(this)
+        when (callState.value) {
+            FakeCallState.RINGING -> startRingingEffects()
+            FakeCallState.ACTIVE -> startProximity()
+            else -> Unit
+        }
     }
 
     override fun onPause() {
         FakeCallSession.uiForeground = false
         FakeCallService.updateState(this)
+        stopRingingEffects()
+        stopProximity()
         super.onPause()
     }
 
@@ -284,6 +309,7 @@ class FakeCallActivity : ComponentActivity() {
         connectTimeMillis = System.currentTimeMillis()
         FakeCallSession.markConnected(connectTimeMillis)
         stopRinging()
+        startProximity()
         try {
             val preset = AmbientSoundManager.getInstance(this).getCurrentPreset()
             AmbientSoundManager.getInstance(this).startCallAudio(preset, isSpeaker.value)
@@ -343,6 +369,56 @@ class FakeCallActivity : ComponentActivity() {
         stopRingbackTone()
     }
 
+    /** Flash + flip-to-silence while the fake call is ringing. */
+    private fun startRingingEffects() {
+        try {
+            val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("flash_on_call", false) &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+            ) {
+                FlashCallController.start(this)
+            }
+            if (prefs.getBoolean("flip_to_silence", false)) {
+                if (flipController == null) {
+                    flipController = FlipSilenceController(this) {
+                        stopRingbackTone()
+                        FlashCallController.stop()
+                    }
+                }
+                flipController?.start()
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopRingingEffects() {
+        try {
+            FlashCallController.stop()
+        } catch (_: Throwable) {
+        }
+        try {
+            flipController?.stop()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun startProximity() {
+        try {
+            val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("proximity_screen_off", true)) return
+            if (proximityController == null) proximityController = CallProximityController(this)
+            proximityController?.start()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopProximity() {
+        try {
+            proximityController?.stop()
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun toggleMute() {
         engine?.toggleMute()
     }
@@ -360,6 +436,20 @@ class FakeCallActivity : ComponentActivity() {
         if (isEnding) return
         isEnding = true
         autoDisconnectRunnable?.let { handler.removeCallbacks(it) }
+        stopRingingEffects()
+        stopProximity()
+        if (connectTimeMillis > 0L) {
+            try {
+                val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                if (prefs.getBoolean("vibrate_on_end", false)) {
+                    val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                    if (vibrator?.hasVibrator() == true) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE))
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+        }
         stopRinging()
         try {
             AmbientSoundManager.getInstance(this).stopCallAudio()
@@ -415,7 +505,16 @@ class FakeCallActivity : ComponentActivity() {
                 '#' -> ToneGenerator.TONE_DTMF_P
                 else -> return
             }
-            toneGenerator?.startTone(tone, 150)
+            val durationMs = try {
+                when (getSharedPreferences("app_prefs", Context.MODE_PRIVATE).getString("dtmf_tone_length", "normal")) {
+                    "short" -> 120
+                    "long" -> 500
+                    else -> 250
+                }
+            } catch (_: Throwable) {
+                250
+            }
+            toneGenerator?.startTone(tone, durationMs)
         } catch (_: Throwable) {
         }
     }

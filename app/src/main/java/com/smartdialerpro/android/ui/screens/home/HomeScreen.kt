@@ -84,6 +84,7 @@ import com.smartdialerpro.android.ui.components.FakeCallSheet
 import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.ui.components.avatarColorsFor
 import com.smartdialerpro.android.ui.components.NumberActionsSheet
+import com.smartdialerpro.android.ui.components.SimChooserDialog
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.theme.CallAnswerGreen
@@ -192,6 +193,16 @@ fun HomeScreen(
     }
     val selectedSim = sims.getOrNull(selectedSimIndex)
 
+    var pendingAskNumber by remember { mutableStateOf<String?>(null) }
+    fun requestCall(callNumber: String) {
+        val mode = prefs.getInt("default_sim_mode", 1)
+        if (mode == 2 && sims.size > 1) {
+            pendingAskNumber = callNumber
+        } else {
+            placeRealCall(context, callNumber, selectedSim)
+        }
+    }
+
     val activeQuery = remember(dialedNumber, topSearchQuery) {
         if (dialedNumber.isNotBlank()) dialedNumber else topSearchQuery
     }
@@ -199,7 +210,7 @@ fun HomeScreen(
 
     val callPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted && activeQuery.isNotBlank()) {
-            placeRealCall(context, activeQuery, selectedSim)
+            requestCall(activeQuery)
         }
     }
 
@@ -607,7 +618,7 @@ fun HomeScreen(
                             onClick = {
                                 if (activeQuery.isBlank()) return@FloatingActionButton
                                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED) {
-                                    placeRealCall(context, activeQuery, selectedSim)
+                                    requestCall(activeQuery)
                                 } else {
                                     callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
                                 }
@@ -664,12 +675,25 @@ fun HomeScreen(
             }
         }
 
+        pendingAskNumber?.let { askNumber ->
+            SimChooserDialog(
+                number = askNumber,
+                sims = sims,
+                onDismiss = { pendingAskNumber = null },
+                onPick = { sim ->
+                    pendingAskNumber = null
+                    placeRealCall(context, askNumber, sim)
+                }
+            )
+        }
+
         sheetNumber?.let { number ->
             val sheetContact = contacts.firstOrNull { Utils.isSameNumber(it.number, number) }
             NumberActionsSheet(
                 number = number,
                 contact = sheetContact,
                 contacts = contacts,
+
                 onDismiss = { sheetNumber = null },
                 onSaveNew = { newNumber ->
                     sheetNumber = null
@@ -1316,13 +1340,14 @@ private fun formatDisplayNumber(raw: String): String {
 fun placeRealCall(context: Context, number: String, selectedSim: SimInfo?) {
     val cleanNumber = number.filter { it.isDigit() || it == '+' || it == '*' || it == '#' || it == ',' || it == ';' }
     if (cleanNumber.isBlank()) return
+    com.smartdialerpro.android.service.AutoRedialManager.cancel()
     try {
         val isUssd = cleanNumber.contains("#") || (cleanNumber.startsWith("*") && cleanNumber.endsWith("#"))
         val action = if (isUssd) Intent.ACTION_DIAL else Intent.ACTION_CALL
         val intent = Intent(action, Uri.parse("tel:${Uri.encode(cleanNumber)}")).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
             if (!isUssd) {
-                selectedSim?.accountHandle?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
+                (selectedSim?.accountHandle ?: Utils.resolveDefaultSimHandle(context))?.let { putExtra(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it) }
             }
         }
         context.startActivity(intent)
