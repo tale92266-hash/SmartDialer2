@@ -64,6 +64,7 @@ import kotlinx.coroutines.delay
 import com.smartdialerpro.android.ui.screens.profile.ContactProfileScreen
 import com.smartdialerpro.android.ui.screens.search.UniversalSearchScreen
 import com.smartdialerpro.android.ui.screens.settings.BlockedNumbersScreen
+import com.smartdialerpro.android.ui.screens.settings.CallStatsScreen
 import com.smartdialerpro.android.ui.screens.settings.QuickResponsesScreen
 import com.smartdialerpro.android.ui.screens.settings.RecordingsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsCallsScreen
@@ -352,6 +353,9 @@ fun MainScreen() {
                 }
                 composable(Screen.QuickResponses.route) {
                     QuickResponsesScreen(navController)
+                }
+                composable(Screen.CallStats.route) {
+                    CallStatsScreen(onBack = { navController.popBackStack() })
                 }
                 composable(
                     route = Screen.ContactEditor.route,

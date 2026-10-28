@@ -33,6 +33,9 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.smartdialerpro.android.service.AmbientSoundManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.smartdialerpro.android.service.FakeCallSim
 import com.smartdialerpro.android.service.SmartDialerScreeningService
 import com.smartdialerpro.android.ui.components.CompactTopBar
@@ -250,6 +253,37 @@ fun SettingsGeneralScreen(navController: NavController? = null) {
         ) {
             openDialpadOnLaunch = it
             prefs.edit().putBoolean("open_dialpad_on_launch", it).apply()
+        }
+        var accent by remember { mutableStateOf(com.smartdialerpro.android.data.ThemeSettings.accent.value) }
+        var pureBlack by remember { mutableStateOf(com.smartdialerpro.android.data.ThemeSettings.pureBlack.value) }
+        var showAccentDialog by remember { mutableStateOf(false) }
+        SettingRow(
+            icon = Icons.Rounded.Palette,
+            title = "Accent colour",
+            subtitle = "Currently ${com.smartdialerpro.android.data.ThemeSettings.accentLabel(accent)} — applies instantly"
+        ) { showAccentDialog = true }
+        if (showAccentDialog) {
+            val accents = com.smartdialerpro.android.data.ThemeSettings.ACCENTS
+            SingleChoiceDialog(
+                title = "Accent colour",
+                options = accents.map { com.smartdialerpro.android.data.ThemeSettings.accentLabel(it) },
+                selected = accents.indexOf(accent).takeIf { it >= 0 } ?: 0,
+                onDismiss = { showAccentDialog = false },
+                onSelect = {
+                    accent = accents[it]
+                    com.smartdialerpro.android.data.ThemeSettings.setAccent(context, accents[it])
+                    showAccentDialog = false
+                }
+            )
+        }
+        SettingSwitchRow(
+            icon = Icons.Rounded.DarkMode,
+            title = "Pure black dark theme",
+            subtitle = "True black background on dark mode (AMOLED screens)",
+            checked = pureBlack
+        ) {
+            pureBlack = it
+            com.smartdialerpro.android.data.ThemeSettings.setPureBlack(context, it)
         }
     }
 }
@@ -778,7 +812,44 @@ fun SettingsPrivacyScreen(navController: NavController? = null) {
 fun SettingsSystemScreen(navController: NavController? = null) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    val coroutineScope = rememberCoroutineScope()
     var keepScreenOn by remember { mutableStateOf(prefs.getBoolean("keep_screen_on", false)) }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            try {
+                val json = withContext(Dispatchers.IO) { BackupRestore.exportJson(context) }
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                }
+                ToastHelper.show(context, "Contacts backup saved")
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Could not save backup")
+            }
+        }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        coroutineScope.launch {
+            try {
+                val json = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+                }
+                if (json.isBlank()) {
+                    ToastHelper.show(context, "Backup file is empty")
+                    return@launch
+                }
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                    ToastHelper.show(context, "Contacts permission is needed to restore")
+                    return@launch
+                }
+                val (imported, skipped) = BackupRestore.importJson(context, json)
+                ToastHelper.show(context, "Restored $imported contacts ($skipped already there)")
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Could not read backup file")
+            }
+        }
+    }
     SettingsSubScreenScaffold(title = "System & About", onBack = { navController?.popBackStack() }) {
         val roleManager = context.getSystemService(Context.ROLE_SERVICE) as? RoleManager
         val isDefault = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
@@ -818,6 +889,27 @@ fun SettingsSystemScreen(navController: NavController? = null) {
             } catch (_: Throwable) {
                 ToastHelper.show(context, "Unable to open notification settings.")
             }
+        }
+        SettingRow(
+            icon = Icons.Rounded.BarChart,
+            title = "Call statistics",
+            subtitle = "Totals, talk time, most-called contacts and the last 7 days"
+        ) {
+            navController?.navigate(Screen.CallStats.route)
+        }
+        SettingRow(
+            icon = Icons.Rounded.Backup,
+            title = "Back up contacts",
+            subtitle = "Save all contacts to a JSON file you choose"
+        ) {
+            exportLauncher.launch("SmartDialer-contacts-backup.json")
+        }
+        SettingRow(
+            icon = Icons.Rounded.Restore,
+            title = "Restore contacts",
+            subtitle = "Import a backup file — numbers you already have are skipped"
+        ) {
+            importLauncher.launch(arrayOf("application/json"))
         }
         SettingRow(
             icon = Icons.Rounded.Info,

@@ -39,8 +39,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // CNAP name cache (network-delivered caller names).
         com.smartdialerpro.android.data.CnapStore.init(this)
+        // Appearance choices (accent colour + pure-black theme).
+        com.smartdialerpro.android.data.ThemeSettings.init(this)
         setContent {
-            SmartDialerTheme {
+            val accent by com.smartdialerpro.android.data.ThemeSettings.accent.collectAsState()
+            val pureBlack by com.smartdialerpro.android.data.ThemeSettings.pureBlack.collectAsState()
+            SmartDialerTheme(accent = accent, pureBlack = pureBlack) {
                 val context = LocalContext.current
                 val roleManager = remember { context.getSystemService(Context.ROLE_SERVICE) as? RoleManager }
                 var isDefaultDialer by remember { mutableStateOf(roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true) }

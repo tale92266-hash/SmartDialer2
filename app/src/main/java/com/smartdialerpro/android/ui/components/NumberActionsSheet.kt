@@ -68,7 +68,9 @@ fun NumberActionsSheet(
     onToggleFavorite: () -> Unit,
     onCall: () -> Unit,
     onOpenProfile: () -> Unit,
-    onMagicCall: (String) -> Unit = {}
+    onMagicCall: (String) -> Unit = {},
+    onNote: ((String) -> Unit)? = null,
+    note: String? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -167,6 +169,15 @@ fun NumberActionsSheet(
             }
             SheetRow(Icons.Rounded.ContentCopy, "Copy number") {
                 copyNumber()
+            }
+            if (onNote != null) {
+                SheetRow(
+                    Icons.Rounded.NoteAlt,
+                    if (note.isNullOrBlank()) "Add call note" else "Edit call note"
+                ) {
+                    onNote(number)
+                    onDismiss()
+                }
             }
             if (contact != null) {
                 SheetRow(

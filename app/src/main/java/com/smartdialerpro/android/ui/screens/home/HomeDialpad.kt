@@ -34,7 +34,11 @@ import androidx.compose.ui.unit.sp
  * change. Only the digit callbacks are owned by the caller.
  */
 @Composable
-fun HomeDialpadGrid(onDigit: (String) -> Unit, onLongDigit: (String) -> Unit) {
+fun HomeDialpadGrid(
+    onDigit: (String) -> Unit,
+    onLongDigit: (String) -> Unit,
+    assignedDigits: Set<String> = emptySet()
+) {
     val layout = listOf(
         listOf("1" to "", "2" to "ABC", "3" to "DEF"),
         listOf("4" to "GHI", "5" to "JKL", "6" to "MNO"),
@@ -51,7 +55,8 @@ fun HomeDialpadGrid(onDigit: (String) -> Unit, onLongDigit: (String) -> Unit) {
                         letters = letters,
                         modifier = Modifier.weight(1f),
                         onClick = { onDigit(digit) },
-                        onLongClick = { onLongDigit(digit) }
+                        onLongClick = { onLongDigit(digit) },
+                        hasSpeedDial = digit in assignedDigits
                     )
                 }
             }
@@ -66,7 +71,8 @@ fun HomeDialpadButton(
     letters: String,
     modifier: Modifier,
     onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    hasSpeedDial: Boolean = false
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -120,5 +126,17 @@ fun HomeDialpadButton(
                 letterSpacing = 1.2.sp
             )
         }
+        // Reserved dot slot keeps every key the same height; the dot
+        // marks a stored speed dial on this digit.
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .background(
+                    if (hasSpeedDial) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                    androidx.compose.foundation.shape.CircleShape
+                )
+                .height(4.dp)
+                .fillMaxWidth(0.09f)
+        )
     }
 }

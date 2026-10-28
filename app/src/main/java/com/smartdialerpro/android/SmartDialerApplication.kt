@@ -27,6 +27,7 @@ class SmartDialerApplication : Application() {
         // a captured CNAP name was shown on the call screen (in-memory
         // only) but never persisted, so call logs could never show it.
         com.smartdialerpro.android.data.CnapStore.init(this)
+        com.smartdialerpro.android.data.CallNotesStore.init(this)
 
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val stackTrace = Log.getStackTraceString(throwable)

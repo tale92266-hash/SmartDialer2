@@ -94,8 +94,10 @@ import com.smartdialerpro.android.viewmodel.ContactsViewModel
 import com.smartdialerpro.android.viewmodel.DialerViewModel
 import com.smartdialerpro.android.viewmodel.RecentFilter
 import com.smartdialerpro.android.viewmodel.RecentsViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -124,6 +126,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
 
     var hasCallLogPermission by remember {
@@ -174,6 +177,23 @@ fun HomeScreen(
     }
 
     val searchUnifiedMatches by dialerViewModel.searchUnifiedMatches.collectAsState()
+
+    // Call notes (latest note per number) + speed-dial assignments.
+    var notesMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var noteDialogNumber by remember { mutableStateOf<String?>(null) }
+    var noteDialogText by remember { mutableStateOf("") }
+    var speedDialAssigned by remember { mutableStateOf<Set<String>>(emptySet()) }
+    LaunchedEffect(recentCalls) {
+        notesMap = withContext(Dispatchers.IO) {
+            com.smartdialerpro.android.data.CallNotesStore.ensureInit(context)
+            com.smartdialerpro.android.data.CallNotesStore.getNotes(recentCalls.map { it.number })
+        }
+    }
+    LaunchedEffect(dialerOpen) {
+        if (dialerOpen) {
+            speedDialAssigned = com.smartdialerpro.android.data.SpeedDialStore.assignedDigits(context)
+        }
+    }
 
     val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
     var selectedAccountId by remember { mutableStateOf(prefs.getString(KEY_ACCOUNT_ID, null)) }
@@ -411,7 +431,7 @@ fun HomeScreen(
                                 when (item) {
                                     is CallListItem.DateHeader -> DateHeader(item.label)
                                     is CallListItem.CallEntry -> {
-                                        HomeCallItemRow(
+                                        SwipeableCallRow(
                                             call = item.call,
                                             expanded = expandedCallId == item.call.id,
                                             onToggle = { expandedCallId = if (expandedCallId == item.call.id) null else item.call.id },
@@ -420,7 +440,8 @@ fun HomeScreen(
                                             onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
                                             onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
-                                            onLongPress = { sheetNumber = item.call.number }
+                                            onLongPress = { sheetNumber = item.call.number },
+                                            note = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(item.call.number)]
                                         )
                                     }
                                 }
@@ -474,7 +495,7 @@ fun HomeScreen(
                                 when (item) {
                                     is CallListItem.DateHeader -> DateHeader(item.label)
                                     is CallListItem.CallEntry -> {
-                                        HomeCallItemRow(
+                                        SwipeableCallRow(
                                             call = item.call,
                                             expanded = expandedCallId == item.call.id,
                                             onToggle = { expandedCallId = if (expandedCallId == item.call.id) null else item.call.id },
@@ -483,7 +504,8 @@ fun HomeScreen(
                                             onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
                                             onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
-                                            onLongPress = { sheetNumber = item.call.number }
+                                            onLongPress = { sheetNumber = item.call.number },
+                                            note = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(item.call.number)]
                                         )
                                     }
                                 }
@@ -578,6 +600,7 @@ fun HomeScreen(
                     Spacer(Modifier.height(8.dp))
 
                     HomeDialpadGrid(
+                        assignedDigits = speedDialAssigned,
                         onDigit = { digit ->
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             dialedNumber += digit
@@ -586,6 +609,23 @@ fun HomeScreen(
                             if (digit == "0") {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 dialedNumber += "+"
+                            } else if (digit in "2".."9") {
+                                // Speed dial: with a typed number, long-press
+                                // stores it on this digit; empty dialpad +
+                                // stored number calls it straight away.
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                if (dialedNumber.isNotBlank()) {
+                                    com.smartdialerpro.android.data.SpeedDialStore.set(context, digit, dialedNumber)
+                                    speedDialAssigned = com.smartdialerpro.android.data.SpeedDialStore.assignedDigits(context)
+                                    Toast.makeText(context, "Speed dial $digit set for $dialedNumber", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val saved = com.smartdialerpro.android.data.SpeedDialStore.get(context, digit)
+                                    if (saved != null) {
+                                        requestCall(saved)
+                                    } else {
+                                        Toast.makeText(context, "No speed dial on $digit — type a number, then long-press $digit to set it", Toast.LENGTH_LONG).show()
+                                    }
+                                }
                             }
                         }
                     )
@@ -724,7 +764,34 @@ fun HomeScreen(
                     sheetNumber = null
                     navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(number)))
                 },
-                onMagicCall = { magicSheetNumber = it }
+                onMagicCall = { magicSheetNumber = it },
+                onNote = { noteNumber ->
+                    sheetNumber = null
+                    noteDialogText = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(noteNumber)].orEmpty()
+                    noteDialogNumber = noteNumber
+                },
+                note = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(number)]
+            )
+        }
+
+        noteDialogNumber?.let { noteNumber ->
+            NoteEditorDialog(
+                number = noteNumber,
+                initialText = noteDialogText,
+                onDismiss = { noteDialogNumber = null },
+                onSave = { text ->
+                    noteDialogNumber = null
+                    coroutineScope.launch {
+                        withContext(Dispatchers.IO) {
+                            com.smartdialerpro.android.data.CallNotesStore.ensureInit(context)
+                            com.smartdialerpro.android.data.CallNotesStore.putNote(noteNumber, text)
+                        }
+                        notesMap = withContext(Dispatchers.IO) {
+                            com.smartdialerpro.android.data.CallNotesStore.getNotes(recentCalls.map { it.number })
+                        }
+                        Toast.makeText(context, if (text.isBlank()) "Note removed" else "Note saved", Toast.LENGTH_SHORT).show()
+                    }
+                }
             )
         }
 
@@ -916,6 +983,122 @@ private fun DateHeader(label: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableCallRow(
+    call: RecentCall,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onCall: () -> Unit,
+    onMessage: () -> Unit,
+    onWhatsApp: () -> Unit,
+    onInfo: () -> Unit,
+    onAddContact: () -> Unit,
+    onLongPress: () -> Unit = {},
+    note: String? = null
+) {
+    // Swipe right to call, swipe left to message. The row snaps back
+    // after the action fires (confirm returns false), so the list
+    // never loses its place.
+    val dismissState = rememberDismissState(confirmValueChange = { value ->
+        when (value) {
+            DismissValue.DismissedToEnd -> {
+                onCall()
+                false
+            }
+            DismissValue.DismissedToStart -> {
+                onMessage()
+                false
+            }
+            else -> false
+        }
+    })
+    SwipeToDismiss(
+        state = dismissState,
+        background = {
+            val direction = dismissState.dismissDirection ?: return@SwipeToDismiss
+            val (color, icon, alignment) = when (direction) {
+                DismissDirection.StartToEnd -> Triple(
+                    CallAnswerGreen,
+                    Icons.Rounded.Call,
+                    Alignment.CenterStart
+                )
+                DismissDirection.EndToStart -> Triple(
+                    MaterialTheme.colorScheme.secondary,
+                    Icons.AutoMirrored.Rounded.Message,
+                    Alignment.CenterEnd
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(color, RoundedCornerShape(18.dp))
+                    .padding(horizontal = 22.dp),
+                contentAlignment = alignment
+            ) {
+                Icon(icon, null, tint = Color.White, modifier = Modifier.size(24.dp))
+            }
+        },
+        dismissContent = {
+            HomeCallItemRow(
+                call = call,
+                expanded = expanded,
+                onToggle = onToggle,
+                onCall = onCall,
+                onMessage = onMessage,
+                onWhatsApp = onWhatsApp,
+                onInfo = onInfo,
+                onAddContact = onAddContact,
+                onLongPress = onLongPress,
+                note = note
+            )
+        }
+    )
+}
+
+@Composable
+private fun NoteEditorDialog(
+    number: String,
+    initialText: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(initialText) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Call note") },
+        text = {
+            Column {
+                Text(
+                    text = number,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("e.g. Met at the Vi store, call about port-in") },
+                    singleLine = false,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(text.trim()) }) { Text("Save") }
+        },
+        dismissButton = {
+            Row {
+                if (initialText.isNotBlank()) {
+                    TextButton(onClick = { onSave("") }) { Text("Delete") }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
+        }
+    )
+}
+
 private fun HomeCallItemRow(
     call: RecentCall,
     expanded: Boolean,
@@ -925,7 +1108,8 @@ private fun HomeCallItemRow(
     onWhatsApp: () -> Unit,
     onInfo: () -> Unit,
     onAddContact: () -> Unit,
-    onLongPress: () -> Unit = {}
+    onLongPress: () -> Unit = {},
+    note: String? = null
 ) {
     val isMissed = call.type == CallLog.Calls.MISSED_TYPE
     val isIncoming = call.type == CallLog.Calls.INCOMING_TYPE
@@ -1027,6 +1211,26 @@ private fun HomeCallItemRow(
                     call.simSlot?.let { slot ->
                         Spacer(Modifier.width(6.dp))
                         SimSlotIcon(slot = slot, size = 11.dp)
+                    }
+                }
+                if (!note.isNullOrBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Rounded.NoteAlt,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = note,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            softWrap = false
+                        )
                     }
                 }
             }

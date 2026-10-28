@@ -36,6 +36,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object SettingsSystem : Screen("settings_system", "System & About", Icons.Rounded.Info)
     object SettingsMagicCall : Screen("settings_magic_call", "Magic Call", Icons.Rounded.AutoAwesome)
     object QuickResponses : Screen("quick_responses", "Quick Responses", Icons.Rounded.Message)
+    object CallStats : Screen("call_stats", "Call statistics", Icons.Rounded.BarChart)
     object ContactProfile : Screen("contact_profile/{number}", "Profile", Icons.Rounded.Person) {
         fun createRoute(number: String) = "contact_profile/$number"
     }

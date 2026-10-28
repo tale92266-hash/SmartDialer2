@@ -28,7 +28,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import com.smartdialerpro.android.data.RecentCall
+import com.smartdialerpro.android.repository.CallLogRepository
 import com.smartdialerpro.android.ui.components.CompactTopBar
+import com.smartdialerpro.android.util.Utils
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +56,7 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
     }
 
     var blockedList by remember { mutableStateOf<List<BlockedEntry>>(emptyList()) }
+    var blockedCalls by remember { mutableStateOf<List<RecentCall>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var showAddDialog by remember { mutableStateOf(false) }
     var inputNumber by remember { mutableStateOf("") }
@@ -64,6 +68,7 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
             coroutineScope.launch {
                 isLoading = true
                 blockedList = withContext(Dispatchers.IO) { fetchAllSystemBlockedNumbers(context) }
+                blockedCalls = withContext(Dispatchers.IO) { CallLogRepository(context).getBlockedCalls(100) }
                 isLoading = false
             }
         }
@@ -73,6 +78,7 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
         coroutineScope.launch {
             isLoading = true
             blockedList = withContext(Dispatchers.IO) { fetchAllSystemBlockedNumbers(context) }
+            blockedCalls = withContext(Dispatchers.IO) { CallLogRepository(context).getBlockedCalls(100) }
             isLoading = false
         }
     }
@@ -174,7 +180,7 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
                         CircularProgressIndicator(strokeWidth = 3.dp)
                     }
                 }
-                blockedList.isEmpty() -> {
+                blockedList.isEmpty() && blockedCalls.isEmpty() -> {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -217,29 +223,31 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
                         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 90.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        item {
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                        if (blockedList.isNotEmpty()) {
+                            item {
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                                 ) {
-                                    Icon(
-                                        Icons.Rounded.Info,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(Modifier.width(10.dp))
-                                    Text(
-                                        text = "${blockedList.size} numbers blocked across Android system. Incoming calls from these will be dropped automatically.",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        lineHeight = 16.sp
-                                    )
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.Rounded.Info,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(
+                                            text = "${blockedList.size} numbers blocked across Android system. Incoming calls from these will be dropped automatically.",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -307,6 +315,60 @@ fun BlockedNumbersScreen(onBack: () -> Unit) {
                                             contentDescription = "Unblock",
                                             tint = MaterialTheme.colorScheme.error
                                         )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (blockedCalls.isNotEmpty()) {
+                            item(key = "blocked_calls_header") {
+                                Text(
+                                    text = "Blocked calls (${blockedCalls.size})",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
+                                )
+                            }
+                            items(blockedCalls, key = { "blocked_call_${it.id}" }) { call ->
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.CallMissed,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(Modifier.width(14.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                text = call.name?.takeIf { it.isNotBlank() } ?: call.number,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 16.sp,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = Utils.formatCallDate(call.date),
+                                                fontSize = 13.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }

@@ -49,3 +49,32 @@ val DarkOnError = Color(0xFF690005)
 // Semantic call colors: green for answering/placing a call, red for ending one.
 val CallAnswerGreen = Color(0xFF188038)
 val CallEndRed = Color(0xFFD93025)
+
+// Accent colours: each accent overrides primary + primary container
+// in the light and dark schemes; secondary/tertiary stay on the base
+// palette so every accent keeps readable, tested contrast.
+val AccentVioletLightPrimary = Color(0xFF5B4DBC)
+val AccentVioletLightContainer = Color(0xFFE4DFFF)
+val AccentVioletDarkPrimary = Color(0xFFC6BFFF)
+val AccentVioletDarkContainer = Color(0xFF43377E)
+
+val AccentGreenLightPrimary = Color(0xFF146C2E)
+val AccentGreenLightContainer = Color(0xFFC4EED0)
+val AccentGreenDarkPrimary = Color(0xFF6DD58C)
+val AccentGreenDarkContainer = Color(0xFF005227)
+
+val AccentOrangeLightPrimary = Color(0xFF9C4A00)
+val AccentOrangeLightContainer = Color(0xFFFFDCC2)
+val AccentOrangeDarkPrimary = Color(0xFFFFB787)
+val AccentOrangeDarkContainer = Color(0xFF6B3200)
+
+val AccentRoseLightPrimary = Color(0xFFA02A4E)
+val AccentRoseLightContainer = Color(0xFFFFD9E2)
+val AccentRoseDarkPrimary = Color(0xFFFFB1C5)
+val AccentRoseDarkContainer = Color(0xFF6E1B34)
+
+// Pure-black dark theme surfaces (AMOLED): true black background,
+// near-black surfaces so cards still separate from the background.
+val PureBlackBackground = Color(0xFF000000)
+val PureBlackSurface = Color(0xFF000000)
+val PureBlackSurfaceVariant = Color(0xFF1C1C1E)

@@ -224,6 +224,12 @@ fun ContactsScreen(
                     ) {
                         itemsIndexed(
                             items = structuredItems,
+                            contentType = { _, item ->
+                                when (item) {
+                                    is ContactListItem.Header -> "header"
+                                    is ContactListItem.Item -> "item"
+                                }
+                            },
                             key = { index, item ->
                                 when (item) {
                                     is ContactListItem.Header -> "hdr_${item.title}_$index"

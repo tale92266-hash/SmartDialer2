@@ -61,9 +61,42 @@ private val DarkColorScheme = darkColorScheme(
 fun SmartDialerTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
+    accent: String = com.smartdialerpro.android.data.ThemeSettings.ACCENT_BLUE,
+    pureBlack: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val baseScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = when (accent) {
+        com.smartdialerpro.android.data.ThemeSettings.ACCENT_VIOLET -> baseScheme.copy(
+            primary = if (darkTheme) AccentVioletDarkPrimary else AccentVioletLightPrimary,
+            primaryContainer = if (darkTheme) AccentVioletDarkContainer else AccentVioletLightContainer,
+            onPrimaryContainer = if (darkTheme) AccentVioletDarkPrimary else AccentVioletLightPrimary
+        )
+        com.smartdialerpro.android.data.ThemeSettings.ACCENT_GREEN -> baseScheme.copy(
+            primary = if (darkTheme) AccentGreenDarkPrimary else AccentGreenLightPrimary,
+            primaryContainer = if (darkTheme) AccentGreenDarkContainer else AccentGreenLightContainer,
+            onPrimaryContainer = if (darkTheme) AccentGreenDarkPrimary else AccentGreenLightPrimary
+        )
+        com.smartdialerpro.android.data.ThemeSettings.ACCENT_ORANGE -> baseScheme.copy(
+            primary = if (darkTheme) AccentOrangeDarkPrimary else AccentOrangeLightPrimary,
+            primaryContainer = if (darkTheme) AccentOrangeDarkContainer else AccentOrangeLightContainer,
+            onPrimaryContainer = if (darkTheme) AccentOrangeDarkPrimary else AccentOrangeLightPrimary
+        )
+        com.smartdialerpro.android.data.ThemeSettings.ACCENT_ROSE -> baseScheme.copy(
+            primary = if (darkTheme) AccentRoseDarkPrimary else AccentRoseLightPrimary,
+            primaryContainer = if (darkTheme) AccentRoseDarkContainer else AccentRoseLightContainer,
+            onPrimaryContainer = if (darkTheme) AccentRoseDarkPrimary else AccentRoseLightPrimary
+        )
+        else -> baseScheme
+    }.let { scheme ->
+        if (darkTheme && pureBlack) {
+            scheme.copy(
+                background = PureBlackBackground,
+                surface = PureBlackSurface,
+                surfaceVariant = PureBlackSurfaceVariant
+            )
+        } else scheme
+    }
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
