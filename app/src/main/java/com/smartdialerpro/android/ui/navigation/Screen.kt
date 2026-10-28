@@ -8,6 +8,7 @@ import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FiberManualRecord
 import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Message
