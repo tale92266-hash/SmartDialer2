@@ -1220,7 +1220,7 @@ private fun SwipeableCallRow(
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         var horizontalSwipe = false
-                        val slopChange = awaitTouchSlopOrCancellation(down) { change, overSlop ->
+                        val slopChange = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
                             if (kotlin.math.abs(overSlop.x) > kotlin.math.abs(overSlop.y)) {
                                 horizontalSwipe = true
                                 change.consume()
@@ -1231,8 +1231,8 @@ private fun SwipeableCallRow(
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                            if (change.changedToUpOrCanceled()) break
-                            val dx = change.positionChange().x
+                            if (!change.pressed) break
+                            val dx = (change.position - change.previousPosition).x
                             if (dx != 0f) {
                                 change.consume()
                                 val newOffset = (offsetX.value + dx).coerceIn(-maxPx, maxPx)
