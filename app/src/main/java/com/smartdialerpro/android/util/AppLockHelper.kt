@@ -29,10 +29,18 @@ object AppLockHelper {
 
     fun isAvailable(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
-        val manager = context.getSystemService(BiometricManager::class.java) ?: return false
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
-            BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        return manager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
+        return try {
+            val manager = context.getSystemService(BiometricManager::class.java) ?: return false
+            val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or
+                BiometricManager.Authenticators.DEVICE_CREDENTIAL
+            manager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
+        } catch (t: Throwable) {
+            // canAuthenticate throws SecurityException when USE_BIOMETRIC
+            // is missing (and on some OEM builds for other reasons). An
+            // availability check must never crash the app on open: if it
+            // cannot be checked, the lock is simply unavailable.
+            false
+        }
     }
 
     fun authenticate(
