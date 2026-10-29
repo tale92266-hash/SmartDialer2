@@ -1013,6 +1013,10 @@ private fun SwipeableCallRow(
     val thresholdPx = with(density) { 96.dp.toPx() }
     val maxPx = with(density) { 160.dp.toPx() }
     val offset = offsetX.value
+    // A reused item slot must never keep the previous row's swipe offset.
+    LaunchedEffect(call.id) {
+        offsetX.snapTo(0f)
+    }
     val snapBack = {
         scope.launch {
             offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
@@ -1020,31 +1024,41 @@ private fun SwipeableCallRow(
     }
     Box(Modifier.fillMaxWidth()) {
         if (offset != 0f) {
+            // Only the action icon is revealed at the swipe edge — never
+            // a full-width colour flood. The row itself stays solid, so
+            // nothing bleeds through it.
             val progress = (kotlin.math.abs(offset) / thresholdPx).coerceIn(0f, 1f)
             val swipingRight = offset > 0f
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        (if (swipingRight) CallAnswerGreen else MaterialTheme.colorScheme.secondary)
-                            .copy(alpha = 0.35f + 0.65f * progress),
-                        RoundedCornerShape(18.dp)
-                    )
-                    .padding(horizontal = 22.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp),
                 contentAlignment = if (swipingRight) Alignment.CenterStart else Alignment.CenterEnd
             ) {
-                Icon(
-                    if (swipingRight) Icons.Rounded.Call else Icons.AutoMirrored.Rounded.Message,
-                    contentDescription = null,
-                    tint = Color.White,
+                Box(
                     modifier = Modifier
-                        .size(24.dp)
-                        .graphicsLayer { alpha = progress }
-                )
+                        .size(44.dp)
+                        .graphicsLayer {
+                            alpha = progress
+                            scaleX = 0.7f + 0.3f * progress
+                            scaleY = 0.7f + 0.3f * progress
+                        }
+                        .background(
+                            if (swipingRight) CallAnswerGreen else MaterialTheme.colorScheme.secondary,
+                            CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (swipingRight) Icons.Rounded.Call else Icons.AutoMirrored.Rounded.Message,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
         Box(
             modifier = Modifier
+                .background(MaterialTheme.colorScheme.background, RoundedCornerShape(18.dp))
                 .offset { IntOffset(offset.roundToInt(), 0) }
                 .pointerInput(Unit) {
                     detectHorizontalDragGestures(
