@@ -334,8 +334,8 @@ fun ContactsScreen(
                                     ) {
                                         Text(
                                             text = char,
-                                            fontSize = if (char == "★") 8.5.sp else 7.5.sp,
-                                            lineHeight = 8.sp,
+                                            fontSize = if (char == "★") 10.sp else 8.5.sp,
+                                            lineHeight = 9.sp,
                                             fontWeight = if (exists) FontWeight.Bold else FontWeight.Normal,
                                             color = if (exists) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
                                             textAlign = TextAlign.Center

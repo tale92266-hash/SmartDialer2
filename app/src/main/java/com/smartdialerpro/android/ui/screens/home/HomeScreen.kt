@@ -32,11 +32,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -327,6 +331,16 @@ fun HomeScreen(
         list
     }
 
+    // Date sections for the logs fast-scroll sidebar: label + first item index.
+    val logSections = remember(groupedCallItems) {
+        val sections = ArrayList<Pair<String, Int>>()
+        groupedCallItems.forEachIndexed { index, item ->
+            if (item is CallListItem.DateHeader) sections.add(item.label to index)
+        }
+        sections
+    }
+    var activeLogSection by remember { mutableStateOf<String?>(null) }
+
     val groupedSearchItems = remember(searchUnifiedMatches) {
         val list = ArrayList<CallListItem>(searchUnifiedMatches.size + 10)
         var lastDayKey = ""
@@ -408,10 +422,11 @@ fun HomeScreen(
                     modifier = Modifier.weight(1f)
                 )
             } else {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentPadding = PaddingValues(bottom = if (dialerOpen) 360.dp else 100.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = if (dialerOpen) 360.dp else 100.dp, end = 20.dp)
                 ) {
                     if (isSearchMode) {
                         if (groupedSearchItems.isEmpty()) {
@@ -528,6 +543,37 @@ fun HomeScreen(
                             }
                         }
                     }
+                }
+                    // Fast-scroll sidebar for the logs list (date sections),
+                    // mirroring the alphabet sidebar on the Contacts tab.
+                    if (!isSearchMode && !dialerOpen && logSections.isNotEmpty() && groupedCallItems.size > 12) {
+                        LogFastScrollSidebar(
+                            listState = listState,
+                            sections = logSections,
+                            totalItems = groupedCallItems.size,
+                            onActiveLabelChange = { activeLogSection = it },
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Date bubble while dragging the logs sidebar.
+        activeLogSection?.let { label ->
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 8.dp
+                ) {
+                    Text(
+                        text = label,
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
                 }
             }
         }
@@ -997,6 +1043,99 @@ private fun DateHeader(label: String) {
     )
 }
 
+/**
+ * Fast-scroll sidebar for the logs list: a slim strip at the right edge
+ * with a thumb sized to the visible window. Dragging (or tapping) jumps
+ * between date sections and reports the active section label so the
+ * caller can show a bubble. Hidden by the caller while searching, while
+ * the dialpad is open, or when the list is short.
+ */
+@Composable
+private fun LogFastScrollSidebar(
+    listState: LazyListState,
+    sections: List<Pair<String, Int>>,
+    totalItems: Int,
+    onActiveLabelChange: (String?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    // Thumb top/height fractions, recomputed only when the visible window changes.
+    val thumbGeometry by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val total = info.totalItemsCount
+            if (total <= 0) {
+                0f to 0.2f
+            } else {
+                val visibleCount = info.visibleItemsInfo.size.coerceAtLeast(1)
+                val firstIndex = info.visibleItemsInfo.firstOrNull()?.index ?: 0
+                val top = (firstIndex.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+                val height = (visibleCount.toFloat() / total.toFloat()).coerceIn(0.08f, 1f)
+                top to height
+            }
+        }
+    }
+    val jumpToFraction: (Float) -> Unit = { fraction ->
+        val targetIndex = (fraction * totalItems).toInt().coerceIn(0, totalItems - 1)
+        val section = sections.lastOrNull { it.second <= targetIndex } ?: sections.firstOrNull()
+        section?.let { (label, index) ->
+            onActiveLabelChange(label)
+            scope.launch { listState.scrollToItem(index) }
+        }
+    }
+    Box(modifier.fillMaxHeight().width(20.dp)) {
+        // Track
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .width(3.dp)
+                .fillMaxHeight(0.92f)
+                .background(
+                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.18f),
+                    RoundedCornerShape(2.dp)
+                )
+        )
+        // Thumb, positioned from the visible window.
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val trackHeightPx = with(density) { maxHeight.toPx() }
+            val thumbHeightPx = (thumbGeometry.second * trackHeightPx)
+                .coerceAtLeast(with(density) { 28.dp.toPx() })
+            val maxTopPx = (trackHeightPx - thumbHeightPx).coerceAtLeast(0f)
+            val thumbTopPx = (thumbGeometry.first * maxTopPx).coerceIn(0f, maxTopPx)
+            Box(
+                Modifier
+                    .offset { IntOffset(0, thumbTopPx.roundToInt()) }
+                    .align(Alignment.TopCenter)
+                    .width(5.dp)
+                    .height(with(density) { thumbHeightPx.toDp() })
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(3.dp))
+            )
+        }
+        // Touch area: drag anywhere on the strip to jump between date sections.
+        Box(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(sections, totalItems) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            if (size.height > 0) {
+                                jumpToFraction((offset.y / size.height).coerceIn(0f, 1f))
+                            }
+                        },
+                        onDrag = { change, _ ->
+                            if (size.height > 0) {
+                                jumpToFraction((change.position.y / size.height).coerceIn(0f, 1f))
+                            }
+                        },
+                        onDragEnd = { onActiveLabelChange(null) },
+                        onDragCancel = { onActiveLabelChange(null) }
+                    )
+                }
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SwipeableCallRow(
@@ -1025,11 +1164,6 @@ private fun SwipeableCallRow(
     LaunchedEffect(call.id) {
         offsetX.snapTo(0f)
     }
-    val snapBack = {
-        scope.launch {
-            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-        }
-    }
     // The swipe wash is a real layout child sized to the row's
     // measured height: background layers sized with fillMaxSize and
     // draw-phase washes did not appear on-device in this list.
@@ -1051,6 +1185,26 @@ private fun SwipeableCallRow(
                         RoundedCornerShape(18.dp)
                     )
             )
+            // Action icon on the revealed edge: call when swiping right,
+            // message when swiping left. It fades and grows in with the swipe.
+            val iconAlpha = 0.35f + 0.65f * progress
+            val iconScale = 0.7f + 0.3f * progress
+            Box(
+                modifier = Modifier
+                    .align(if (offset > 0f) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 18.dp)
+                    .size(44.dp)
+                    .scale(iconScale)
+                    .background(Color.White.copy(alpha = 0.08f + 0.22f * iconAlpha), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (offset > 0f) Icons.Rounded.Call else Icons.Rounded.Message,
+                    contentDescription = null,
+                    tint = Color.White.copy(alpha = iconAlpha),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
         Box(
             modifier = Modifier
@@ -1058,32 +1212,48 @@ private fun SwipeableCallRow(
                 .background(MaterialTheme.colorScheme.background, RoundedCornerShape(18.dp))
                 .offset { IntOffset(offset.roundToInt(), 0) }
                 .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            crossed = false
-                            scope.launch {
-                                when {
-                                    offsetX.value > thresholdPx -> onCall()
-                                    offsetX.value < -thresholdPx -> onMessage()
-                                }
-                                offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                    // Direction-locked swipe: wait for touch slop, then
+                    // commit to a horizontal swipe ONLY if the finger moved
+                    // mostly sideways. If it moved mostly up/down, nothing
+                    // is consumed here and the list scrolls normally, so
+                    // scrolling can never slide a row sideways.
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var horizontalSwipe = false
+                        val slopChange = awaitTouchSlopOrCancellation(down) { change, overSlop ->
+                            if (kotlin.math.abs(overSlop.x) > kotlin.math.abs(overSlop.y)) {
+                                horizontalSwipe = true
+                                change.consume()
                             }
-                        },
-                        onDragCancel = {
-                            crossed = false
-                            snapBack()
                         }
-                    ) { change, dragAmount ->
-                        change.consume()
-                        val newOffset = (offsetX.value + dragAmount).coerceIn(-maxPx, maxPx)
-                        if (!crossed && kotlin.math.abs(newOffset) >= thresholdPx) {
-                            crossed = true
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        } else if (crossed && kotlin.math.abs(newOffset) < thresholdPx) {
-                            crossed = false
+                        if (slopChange == null || !horizontalSwipe) return@awaitEachGesture
+                        val pointerId = slopChange.id
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (change.changedToUpOrCanceled()) break
+                            val dx = change.positionChange().x
+                            if (dx != 0f) {
+                                change.consume()
+                                val newOffset = (offsetX.value + dx).coerceIn(-maxPx, maxPx)
+                                if (!crossed && kotlin.math.abs(newOffset) >= thresholdPx) {
+                                    crossed = true
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                } else if (crossed && kotlin.math.abs(newOffset) < thresholdPx) {
+                                    crossed = false
+                                }
+                                scope.launch {
+                                    offsetX.snapTo(newOffset)
+                                }
+                            }
                         }
+                        crossed = false
                         scope.launch {
-                            offsetX.snapTo(newOffset)
+                            when {
+                                offsetX.value > thresholdPx -> onCall()
+                                offsetX.value < -thresholdPx -> onMessage()
+                            }
+                            offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                         }
                     }
                 }
