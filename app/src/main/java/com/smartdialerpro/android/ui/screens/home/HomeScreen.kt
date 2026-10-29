@@ -1030,13 +1030,17 @@ private fun SwipeableCallRow(
     // No icon — just the fading colour wash, on both sides.
     val haptic = LocalHapticFeedback.current
     var crossed by remember { mutableStateOf(false) }
+    // Colours must be read here (composable context) — drawWithContent
+    // is not one, so MaterialTheme cannot be touched inside it.
+    val washCall = CallAnswerGreen
+    val washMessage = MaterialTheme.colorScheme.secondary
     Box(
         Modifier
             .fillMaxWidth()
             .drawWithContent {
                 if (offset != 0f) {
                     val progress = (kotlin.math.abs(offset) / thresholdPx).coerceIn(0f, 1f)
-                    val wash = if (offset > 0f) CallAnswerGreen else MaterialTheme.colorScheme.secondary
+                    val wash = if (offset > 0f) washCall else washMessage
                     drawRoundRect(
                         color = wash,
                         topLeft = Offset.Zero,
