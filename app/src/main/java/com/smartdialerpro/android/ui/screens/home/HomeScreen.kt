@@ -57,13 +57,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.onSizeChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1024,36 +1022,31 @@ private fun SwipeableCallRow(
             offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
         }
     }
-    // The swipe colour is drawn directly behind the row (never a
-    // separate background layer, which the list did not render
-    // reliably): the more the row slides, the deeper the colour.
-    // No icon — just the fading colour wash, on both sides.
+    // The swipe wash is a real layout child sized to the row's
+    // measured height: background layers sized with fillMaxSize and
+    // draw-phase washes did not appear on-device in this list.
     val haptic = LocalHapticFeedback.current
     var crossed by remember { mutableStateOf(false) }
-    // Colours must be read here (composable context) — drawWithContent
-    // is not one, so MaterialTheme cannot be touched inside it.
+    var rowHeightPx by remember { mutableStateOf(0) }
     val washCall = CallAnswerGreen
     val washMessage = MaterialTheme.colorScheme.secondary
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .drawWithContent {
-                if (offset != 0f) {
-                    val progress = (kotlin.math.abs(offset) / thresholdPx).coerceIn(0f, 1f)
-                    val wash = if (offset > 0f) washCall else washMessage
-                    drawRoundRect(
-                        color = wash,
-                        topLeft = Offset.Zero,
-                        size = size,
-                        cornerRadius = CornerRadius(18.dp.toPx(), 18.dp.toPx()),
-                        alpha = 0.12f + 0.5f * progress
+    Box(Modifier.fillMaxWidth()) {
+        if (offset != 0f && rowHeightPx > 0) {
+            val progress = (kotlin.math.abs(offset) / thresholdPx).coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(with(density) { rowHeightPx.toDp() })
+                    .background(
+                        (if (offset > 0f) washCall else washMessage)
+                            .copy(alpha = 0.20f + 0.55f * progress),
+                        RoundedCornerShape(18.dp)
                     )
-                }
-                drawContent()
-            }
-    ) {
+            )
+        }
         Box(
             modifier = Modifier
+                .onSizeChanged { rowHeightPx = it.height }
                 .background(MaterialTheme.colorScheme.background, RoundedCornerShape(18.dp))
                 .offset { IntOffset(offset.roundToInt(), 0) }
                 .pointerInput(Unit) {

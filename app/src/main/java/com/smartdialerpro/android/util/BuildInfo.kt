@@ -6,5 +6,5 @@ package com.smartdialerpro.android.util
  * every delivered build: v1, v2, v3, ...
  */
 object BuildInfo {
-    const val LABEL = "v19"
+    const val LABEL = "v20"
 }
