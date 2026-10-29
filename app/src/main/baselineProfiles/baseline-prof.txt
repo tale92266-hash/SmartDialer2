@@ -1,0 +1,14 @@
+Lcom/smartdialerpro/android/MainActivity;->onCreate(Landroid/os/Bundle;)V
+Lcom/smartdialerpro/android/MainActivity;->onNewIntent(Landroid/content/Intent;)V
+Lcom/smartdialerpro/android/SmartDialerApplication;
+Lcom/smartdialerpro/android/ui/MainScreenKt;
+Lcom/smartdialerpro/android/ui/screens/home/HomeScreenKt;
+Lcom/smartdialerpro/android/data/ThemeSettings;
+Lcom/smartdialerpro/android/data/CnapStore;
+Lcom/smartdialerpro/android/data/CallNotesStore;
+Lcom/smartdialerpro/android/repository/CallLogRepository;
+Lcom/smartdialerpro/android/repository/ContactsRepository;
+Lcom/smartdialerpro/android/ui/theme/ThemeKt;
+Lcom/smartdialerpro/android/service/FakeCallSim;
+Lcom/smartdialerpro/android/util/Utils;
+Lcom/smartdialerpro/android/viewmodel/AppViewModelsKt;

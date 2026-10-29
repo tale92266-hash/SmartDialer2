@@ -1,7 +1,14 @@
 package com.smartdialerpro.android.ui.screens.settings
 
 import android.content.Context
+import android.util.Base64
 import com.smartdialerpro.android.repository.ContactsRepository
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -84,4 +91,55 @@ object BackupRestore {
             }
             imported to skipped
         }
+
+    // ---- Encrypted backups (AES/GCM, password-derived key, no dependency) ----
+
+    /** True when the file text is an encrypted backup envelope. */
+    fun isEncryptedBackup(json: String): Boolean {
+        return try {
+            JSONObject(json).optBoolean("encrypted", false)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** Encrypts the plain backup JSON with the password. Output is a JSON envelope. */
+    suspend fun exportEncryptedJson(context: Context, password: String): String =
+        withContext(Dispatchers.IO) {
+            val plain = exportJson(context)
+            val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+            val iv = ByteArray(12).also { SecureRandom().nextBytes(it) }
+            val key = deriveKey(password, salt)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
+            val encrypted = cipher.doFinal(plain.toByteArray(Charsets.UTF_8))
+            JSONObject()
+                .put("encrypted", true)
+                .put("salt", Base64.encodeToString(salt, Base64.NO_WRAP))
+                .put("iv", Base64.encodeToString(iv, Base64.NO_WRAP))
+                .put("data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+                .toString()
+        }
+
+    /** Decrypts an encrypted backup envelope; null when the password is wrong or the file is bad. */
+    fun decryptBackup(envelope: String, password: String): String? {
+        return try {
+            val obj = JSONObject(envelope)
+            val salt = Base64.decode(obj.getString("salt"), Base64.NO_WRAP)
+            val iv = Base64.decode(obj.getString("iv"), Base64.NO_WRAP)
+            val data = Base64.decode(obj.getString("data"), Base64.NO_WRAP)
+            val key = deriveKey(password, salt)
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+            String(cipher.doFinal(data), Charsets.UTF_8)
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun deriveKey(password: String, salt: ByteArray): SecretKeySpec {
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val spec = PBEKeySpec(password.toCharArray(), salt, 65_536, 256)
+        return SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
+    }
 }

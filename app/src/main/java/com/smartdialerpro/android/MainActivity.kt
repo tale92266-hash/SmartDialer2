@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material3.*
@@ -37,10 +38,12 @@ import com.smartdialerpro.android.ui.theme.SmartDialerTheme
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleDialIntent(intent)
         // CNAP name cache (network-delivered caller names).
         com.smartdialerpro.android.data.CnapStore.init(this)
         // Appearance choices (accent colour + pure-black theme).
         com.smartdialerpro.android.data.ThemeSettings.init(this)
+        val hostActivity = this
         setContent {
             val accent by com.smartdialerpro.android.data.ThemeSettings.accent.collectAsState()
             val pureBlack by com.smartdialerpro.android.data.ThemeSettings.pureBlack.collectAsState()
@@ -57,12 +60,37 @@ class MainActivity : ComponentActivity() {
                     isDefaultDialer = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
                 }
 
+                // App lock: biometric/device-credential prompt on cold start
+                // and when returning after 60s away. Never locks when no
+                // credential is enrolled, so the dialer stays reachable.
+                val lockEnabled = remember { com.smartdialerpro.android.util.AppLockHelper.isEnabled(hostActivity) }
+                val lockAvailable = remember { com.smartdialerpro.android.util.AppLockHelper.isAvailable(hostActivity) }
+                var appLocked by remember { mutableStateOf(lockEnabled && lockAvailable) }
+                var unlockNonce by remember { mutableIntStateOf(0) }
+                var lastPauseMillis by remember { mutableLongStateOf(0L) }
+                LaunchedEffect(appLocked, unlockNonce) {
+                    if (appLocked) {
+                        com.smartdialerpro.android.util.AppLockHelper.authenticate(
+                            hostActivity,
+                            onSuccess = { appLocked = false },
+                            onError = { }
+                        )
+                    }
+                }
+
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
                     val observer = LifecycleEventObserver { _, event ->
                         if (event == Lifecycle.Event.ON_RESUME) {
                             isDefaultDialer = roleManager?.isRoleHeld(RoleManager.ROLE_DIALER) == true
                             permissionRefresh++
+                            if (lockEnabled && !appLocked && lastPauseMillis > 0L &&
+                                System.currentTimeMillis() - lastPauseMillis > 60_000L
+                            ) {
+                                appLocked = true
+                            }
+                        } else if (event == Lifecycle.Event.ON_PAUSE) {
+                            lastPauseMillis = System.currentTimeMillis()
                         }
                     }
                     lifecycleOwner.lifecycle.addObserver(observer)
@@ -76,7 +104,9 @@ class MainActivity : ComponentActivity() {
                 val notificationsGranted = android.os.Build.VERSION.SDK_INT < 33 || hasPermission(context, Manifest.permission.POST_NOTIFICATIONS)
                 @Suppress("UNUSED_VARIABLE") val refresh = permissionRefresh
 
-                when {
+                if (appLocked) {
+                    LockScreen { unlockNonce++ }
+                } else when {
                     !isDefaultDialer -> DefaultDialerPromptScreen {
                         try {
                             if (roleManager?.isRoleAvailable(RoleManager.ROLE_DIALER) == true) {
@@ -113,8 +143,47 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDialIntent(intent)
+    }
+
+    /** A tel: link (ACTION_DIAL / ACTION_VIEW) hands its number to the dialpad. */
+    private fun handleDialIntent(intent: Intent?) {
+        try {
+            val action = intent?.action
+            if (action == Intent.ACTION_DIAL || action == Intent.ACTION_VIEW) {
+                val data = intent.data
+                if (data != null && data.scheme == "tel") {
+                    data.schemeSpecificPart?.takeIf { it.isNotBlank() }?.let {
+                        com.smartdialerpro.android.data.PendingDialNumber.offer(it)
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun hasPermission(context: Context, permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+}
+
+@Composable
+private fun LockScreen(onUnlock: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(100.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(32.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Lock, "Locked", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+            }
+            Spacer(Modifier.height(40.dp))
+            Text("SmartDialer is locked", fontSize = 26.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(16.dp))
+            Text("Use your fingerprint, face, or device PIN to open your dialer.", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, lineHeight = 24.sp)
+            Spacer(Modifier.height(48.dp))
+            Button(onClick = onUnlock, Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Text("Unlock", fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+        }
+    }
 }
 
 @Composable

@@ -4,7 +4,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -22,9 +21,13 @@ import androidx.compose.ui.unit.sp
 
 /**
  * Small SIM-card glyph for call rows: a SIM outline with a chip and a bold
- * slot numeral. SIM 1 uses the primary colour, SIM 2 the tertiary colour,
- * so the slot is recognisable at a glance without any text label.
+ * slot numeral. SIM 1 is always blue, SIM 2 always green, whatever the
+ * app accent is, so the slot is recognisable at a glance without any
+ * text label.
  */
+private val SimOneBlue = androidx.compose.ui.graphics.Color(0xFF4A90E2)
+private val SimTwoGreen = androidx.compose.ui.graphics.Color(0xFF34A853)
+
 @Composable
 fun SimSlotIcon(
     slot: Int,
@@ -33,7 +36,7 @@ fun SimSlotIcon(
     /** Overrides the slot colour (e.g. inside a selected chip whose background is the primary colour). */
     color: androidx.compose.ui.graphics.Color? = null
 ) {
-    val slotColor = if (slot == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+    val slotColor = if (slot == 1) SimOneBlue else SimTwoGreen
     val color = color ?: slotColor
     Box(
         modifier = modifier

@@ -121,6 +121,26 @@ object CnapStore {
 
     data class CnapEntry(val number: String, val name: String)
 
+    /** Row count, for the Privacy centre. */
+    fun count(): Int {
+        val dbHelper = helper ?: return 0
+        return try {
+            dbHelper.readableDatabase.query(TABLE, arrayOf("number_key"), null, null, null, null, null, null)
+                .use { it.count }
+        } catch (_: Throwable) {
+            0
+        }
+    }
+
+    /** Deletes every cached CNAP name. */
+    fun clearAll() {
+        val dbHelper = helper ?: return
+        try {
+            dbHelper.writableDatabase.delete(TABLE, null, null)
+        } catch (_: Throwable) {
+        }
+    }
+
     /** All cached entries, newest first — used to build the search index. */
     fun allEntries(): List<CnapEntry> {
         val dbHelper = helper ?: return emptyList()

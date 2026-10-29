@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -275,6 +276,48 @@ fun SettingsGeneralScreen(navController: NavController? = null) {
                     showAccentDialog = false
                 }
             )
+        }
+        var callTheme by remember { mutableStateOf(com.smartdialerpro.android.data.ThemeSettings.callTheme.value) }
+        var showCallThemeDialog by remember { mutableStateOf(false) }
+        SettingRow(
+            icon = Icons.Rounded.Wallpaper,
+            title = "Call screen theme",
+            subtitle = "Currently ${com.smartdialerpro.android.data.CallThemes.label(callTheme)} — applies to real and fake calls"
+        ) { showCallThemeDialog = true }
+        if (showCallThemeDialog) {
+            val themes = com.smartdialerpro.android.data.CallThemes.THEMES
+            SingleChoiceDialog(
+                title = "Call screen theme",
+                options = themes.map { it.label },
+                selected = themes.indexOfFirst { it.id == callTheme }.takeIf { it >= 0 } ?: 0,
+                onDismiss = { showCallThemeDialog = false },
+                onSelect = {
+                    callTheme = themes[it].id
+                    com.smartdialerpro.android.data.ThemeSettings.setCallTheme(context, themes[it].id)
+                    showCallThemeDialog = false
+                }
+            )
+        }
+        val appLockAvailable = remember { com.smartdialerpro.android.util.AppLockHelper.isAvailable(context) }
+        var appLock by remember { mutableStateOf(com.smartdialerpro.android.util.AppLockHelper.isEnabled(context)) }
+        if (appLockAvailable) {
+            SettingSwitchRow(
+                icon = Icons.Rounded.Lock,
+                title = "Lock app",
+                subtitle = "Ask for fingerprint, face, or device PIN when opening SmartDialer",
+                checked = appLock
+            ) {
+                appLock = it
+                com.smartdialerpro.android.util.AppLockHelper.setEnabled(context, it)
+            }
+        } else {
+            SettingRow(
+                icon = Icons.Rounded.Lock,
+                title = "Lock app",
+                subtitle = "Not available — set up a fingerprint, face, or device PIN first"
+            ) {
+                ToastHelper.show(context, "Set up a screen lock or biometric on this phone first.")
+            }
         }
         SettingSwitchRow(
             icon = Icons.Rounded.DarkMode,
@@ -743,6 +786,13 @@ fun SettingsPrivacyScreen(navController: NavController? = null) {
 
     SettingsSubScreenScaffold(title = "Privacy & Blocked", onBack = { navController?.popBackStack() }) {
         SettingRow(
+            icon = Icons.Rounded.Security,
+            title = "Privacy centre",
+            subtitle = "What SmartDialer stores on this phone — and how to clear it"
+        ) {
+            navController?.navigate(Screen.PrivacyCentre.route)
+        }
+        SettingRow(
             icon = Icons.Rounded.Block,
             title = "Blocked numbers",
             subtitle = "Manage system-wide blocked callers and spam rejection"
@@ -814,6 +864,27 @@ fun SettingsSystemScreen(navController: NavController? = null) {
     val prefs = remember { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
     val coroutineScope = rememberCoroutineScope()
     var keepScreenOn by remember { mutableStateOf(prefs.getBoolean("keep_screen_on", false)) }
+    var pendingEncryptedJson by remember { mutableStateOf<String?>(null) }
+    var showDecryptDialog by remember { mutableStateOf(false) }
+    var decryptPassword by remember { mutableStateOf("") }
+    var showEncryptDialog by remember { mutableStateOf(false) }
+    var encryptPassword by remember { mutableStateOf("") }
+    var encryptPasswordConfirm by remember { mutableStateOf("") }
+    val encryptedExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val password = encryptPassword
+        coroutineScope.launch {
+            try {
+                val json = withContext(Dispatchers.IO) { BackupRestore.exportEncryptedJson(context, password) }
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                }
+                ToastHelper.show(context, "Encrypted backup saved")
+            } catch (_: Throwable) {
+                ToastHelper.show(context, "Could not save encrypted backup")
+            }
+        }
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         coroutineScope.launch {
@@ -841,6 +912,12 @@ fun SettingsSystemScreen(navController: NavController? = null) {
                 }
                 if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
                     ToastHelper.show(context, "Contacts permission is needed to restore")
+                    return@launch
+                }
+                if (BackupRestore.isEncryptedBackup(json)) {
+                    pendingEncryptedJson = json
+                    decryptPassword = ""
+                    showDecryptDialog = true
                     return@launch
                 }
                 val (imported, skipped) = BackupRestore.importJson(context, json)
@@ -876,6 +953,13 @@ fun SettingsSystemScreen(navController: NavController? = null) {
             }
         }
         SettingRow(
+            icon = Icons.Rounded.CheckCircle,
+            title = "Set up SmartDialer",
+            subtitle = "Guided setup: default dialer role and permissions in three steps"
+        ) {
+            navController?.navigate(Screen.SetupWizard.route)
+        }
+        SettingRow(
             icon = Icons.Rounded.Notifications,
             title = "Call notifications",
             subtitle = "Configure ongoing, incoming, and heads-up banner alerts"
@@ -905,6 +989,15 @@ fun SettingsSystemScreen(navController: NavController? = null) {
             exportLauncher.launch("SmartDialer-contacts-backup.json")
         }
         SettingRow(
+            icon = Icons.Rounded.Lock,
+            title = "Encrypted backup",
+            subtitle = "Password-protected backup — only the password can open it"
+        ) {
+            encryptPassword = ""
+            encryptPasswordConfirm = ""
+            showEncryptDialog = true
+        }
+        SettingRow(
             icon = Icons.Rounded.Restore,
             title = "Restore contacts",
             subtitle = "Import a backup file — numbers you already have are skipped"
@@ -916,6 +1009,93 @@ fun SettingsSystemScreen(navController: NavController? = null) {
             title = "About SmartDialer",
             subtitle = "Version 1.0 • ${com.smartdialerpro.android.util.BuildInfo.LABEL}"
         ) {}
+    }
+    if (showEncryptDialog) {
+        AlertDialog(
+            onDismissRequest = { showEncryptDialog = false },
+            title = { Text("Encrypted backup") },
+            text = {
+                Column {
+                    Text("Choose a password. Without it, the backup cannot be opened.", fontSize = 14.sp)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = encryptPassword,
+                        onValueChange = { encryptPassword = it },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = encryptPasswordConfirm,
+                        onValueChange = { encryptPasswordConfirm = it },
+                        label = { Text("Password again") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (encryptPassword.length < 4) {
+                        ToastHelper.show(context, "Use at least 4 characters for the password.")
+                    } else if (encryptPassword != encryptPasswordConfirm) {
+                        ToastHelper.show(context, "Passwords do not match.")
+                    } else {
+                        showEncryptDialog = false
+                        encryptedExportLauncher.launch("SmartDialer-contacts-backup-encrypted.json")
+                    }
+                }) { Text("Save backup") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEncryptDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+    if (showDecryptDialog) {
+        AlertDialog(
+            onDismissRequest = { showDecryptDialog = false },
+            title = { Text("Encrypted backup") },
+            text = {
+                Column {
+                    Text("This backup is password-protected.", fontSize = 14.sp)
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = decryptPassword,
+                        onValueChange = { decryptPassword = it },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val envelope = pendingEncryptedJson
+                    showDecryptDialog = false
+                    if (envelope == null) return@Button
+                    coroutineScope.launch {
+                        val plain = withContext(Dispatchers.IO) { BackupRestore.decryptBackup(envelope, decryptPassword) }
+                        if (plain == null) {
+                            ToastHelper.show(context, "Wrong password — backup could not be opened.")
+                            return@launch
+                        }
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                            ToastHelper.show(context, "Contacts permission is needed to restore")
+                            return@launch
+                        }
+                        val (imported, skipped) = BackupRestore.importJson(context, plain)
+                        ToastHelper.show(context, "Restored $imported contacts ($skipped already there)")
+                    }
+                }) { Text("Restore") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDecryptDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

@@ -37,6 +37,10 @@ object FakeCallLogWriter {
     private const val COL_PHONE_ACCOUNT_ADDRESS = "phone_account_address"
     private const val COL_SUB_ID = "sub_id"
     private const val COL_NUMBERLABEL = "numberlabel"
+    /** Raw CallLog column for why a call was missed (no public constant in this SDK). */
+    private const val COL_MISSED_REASON = "missed_reason"
+    /** missed_reason value: the call rang but was not answered. */
+    private const val MISSED_REASON_NOT_ANSWERED = 1
 
     /**
      * Returns true when the entry is confirmed in the system call log
@@ -88,6 +92,11 @@ object FakeCallLogWriter {
         values.put(CallLog.Calls.TYPE, if (isMissed) CallLog.Calls.MISSED_TYPE else CallLog.Calls.OUTGOING_TYPE)
         values.put(CallLog.Calls.NEW, if (isMissed) 1 else 0)
         values.put(CallLog.Calls.IS_READ, if (isMissed) 0 else 1)
+        if (isMissed) {
+            // A real missed row carries why it was missed; the retry
+            // ladder strips this exotic column if the provider rejects it.
+            values.put(COL_MISSED_REASON, MISSED_REASON_NOT_ANSWERED)
+        }
 
         var countryIso: String? = null
         try {
@@ -248,6 +257,7 @@ object FakeCallLogWriter {
         working.remove("presentation")
         working.remove(COL_NUMBERLABEL)
         working.remove(CallLog.Calls.POST_DIAL_DIGITS)
+        working.remove(COL_MISSED_REASON)
         if (tryInsert(3)) {
             lastInsertErrors = errors.toString()
             return true
@@ -466,6 +476,53 @@ object FakeCallLogWriter {
         return null
     }
 
+    /**
+     * Real calls update the saved contact's TIMES_CONTACTED and
+     * LAST_TIME_CONTACTED in the Contacts provider; fake calls must
+     * do the same so frequency/last-contacted data matches reality.
+     * Silent no-op without WRITE_CONTACTS or when the number is not
+     * a saved contact.
+     */
+    fun noteContactCalled(context: Context, number: String) {
+        try {
+            if (number.isBlank()) return
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CONTACTS) != PackageManager.PERMISSION_GRANTED) return
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return
+            var contactId: Long? = null
+            var timesContacted = 0
+            val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
+            context.contentResolver.query(
+                uri,
+                arrayOf(ContactsContract.PhoneLookup._ID),
+                null, null, null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) contactId = cursor.getLong(0)
+            }
+            if (contactId == null) return
+            context.contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                arrayOf(ContactsContract.Contacts.TIMES_CONTACTED),
+                "${ContactsContract.Contacts._ID} = ?",
+                arrayOf(contactId.toString()),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) timesContacted = cursor.getInt(0)
+            }
+            val values = ContentValues().apply {
+                put(ContactsContract.Contacts.TIMES_CONTACTED, timesContacted + 1)
+                put(ContactsContract.Contacts.LAST_TIME_CONTACTED, System.currentTimeMillis())
+            }
+            context.contentResolver.update(
+                ContactsContract.Contacts.CONTENT_URI,
+                values,
+                "${ContactsContract.Contacts._ID} = ?",
+                arrayOf(contactId.toString())
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "Contact stats update failed", t)
+        }
+    }
+
     /** Missed-call style notification for a fake call that never connected. */
     fun showFakeMissedCallNotification(context: Context, name: String, number: String) {
         try {
@@ -481,6 +538,20 @@ object FakeCallLogWriter {
                 Intent(context, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
+            // Same actions a real dialer's missed-call notification has:
+            // call the number back, or open the messaging app for it.
+            val callBackIntent = PendingIntent.getActivity(
+                context,
+                1,
+                Intent(Intent.ACTION_CALL, Uri.parse("tel:${Uri.encode(number)}")).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val messageIntent = PendingIntent.getActivity(
+                context,
+                2,
+                Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:${Uri.encode(number)}")).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK },
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
             val displayName = name.takeIf { it.isNotBlank() } ?: number.ifBlank { "Unknown number" }
             val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.ic_call)
@@ -489,6 +560,10 @@ object FakeCallLogWriter {
                 .setContentIntent(openIntent)
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setNumber(1)
+                .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
+                .addAction(R.drawable.ic_call, "Call back", callBackIntent)
+                .addAction(R.drawable.ic_message, "Message", messageIntent)
                 .build()
             manager?.notify(1002, notification)
         } catch (t: Throwable) {

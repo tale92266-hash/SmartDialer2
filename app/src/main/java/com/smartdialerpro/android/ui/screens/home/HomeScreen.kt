@@ -157,6 +157,14 @@ fun HomeScreen(
     var dialedNumber by rememberSaveable { mutableStateOf("") }
     var pendingWhatsAppNumber by remember { mutableStateOf<String?>(null) }
 
+    // A tel: link from another app pre-fills the dialpad once.
+    LaunchedEffect(Unit) {
+        com.smartdialerpro.android.data.PendingDialNumber.take()?.let { number ->
+            dialedNumber = number
+            dialerOpen = true
+        }
+    }
+
     // Leaving the Home tab closes the top search mode; dialled digits survive.
     LaunchedEffect(clearSearchSignal) {
         if (clearSearchSignal > 0) topSearchQuery = ""
@@ -446,7 +454,7 @@ fun HomeScreen(
                                             onCall = { Utils.makeCall(context, item.call.number) },
                                             onMessage = { openSms(context, item.call.number) },
                                             onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
-                                            onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
+                                            onInfo = { com.smartdialerpro.android.ui.screens.details.CallDetailsHolder.call = item.call; navController.navigate(Screen.CallDetails.route) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
                                             onLongPress = { sheetNumber = item.call.number },
                                             note = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(item.call.number)]
@@ -510,7 +518,7 @@ fun HomeScreen(
                                             onCall = { Utils.makeCall(context, item.call.number) },
                                             onMessage = { openSms(context, item.call.number) },
                                             onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
-                                            onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
+                                            onInfo = { com.smartdialerpro.android.ui.screens.details.CallDetailsHolder.call = item.call; navController.navigate(Screen.CallDetails.route) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
                                             onLongPress = { sheetNumber = item.call.number },
                                             note = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(item.call.number)]

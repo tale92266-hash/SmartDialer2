@@ -1,13 +1,17 @@
 package com.smartdialerpro.android.ui.theme
 
 import android.app.Activity
+import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -65,7 +69,15 @@ fun SmartDialerTheme(
     pureBlack: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val baseScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val context = LocalContext.current
+    val useDynamic = accent == com.smartdialerpro.android.data.ThemeSettings.ACCENT_DYNAMIC &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val baseScheme = when {
+        useDynamic && darkTheme -> dynamicDarkColorScheme(context)
+        useDynamic -> dynamicLightColorScheme(context)
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
     val colorScheme = when (accent) {
         com.smartdialerpro.android.data.ThemeSettings.ACCENT_VIOLET -> baseScheme.copy(
             primary = if (darkTheme) AccentVioletDarkPrimary else AccentVioletLightPrimary,

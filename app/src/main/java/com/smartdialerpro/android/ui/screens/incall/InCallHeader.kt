@@ -44,7 +44,9 @@ fun InCallHeader(
     /** 1-based SIM slot: when set, the SIM glyph icon is shown instead of the generic SIM icon. */
     simSlot: Int? = null,
     /** Network-delivered CNAP name: shown as a subtitle when it differs from the contact name. */
-    cnapName: String? = null
+    cnapName: String? = null,
+    /** VoLTE "HD" chip next to the SIM badge (fake calls ride the same HD path as real VoLTE calls). */
+    showHdChip: Boolean = false
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -103,36 +105,55 @@ fun InCallHeader(
                 )
             )
         }
-        if (!simInfo.isNullOrBlank()) {
+        if (!simInfo.isNullOrBlank() || showHdChip) {
             Spacer(Modifier.height(12.dp))
-            if (simSlot != null) {
-                com.smartdialerpro.android.ui.components.SimBadge(
-                    slot = simSlot,
-                    label = simInfo,
-                    glyphColor = Color.White
-                )
-            } else {
-                Row(
-                    modifier = Modifier
-                        .background(
-                            MaterialTheme.colorScheme.primary.copy(alpha = .20f),
-                            RoundedCornerShape(50.dp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (!simInfo.isNullOrBlank()) {
+                    if (simSlot != null) {
+                        com.smartdialerpro.android.ui.components.SimBadge(
+                            slot = simSlot,
+                            label = simInfo,
+                            glyphColor = Color.White
                         )
-                        .padding(horizontal = 16.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.SimCard,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.padding(end = 7.dp)
-                    )
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = .20f),
+                                    RoundedCornerShape(50.dp)
+                                )
+                                .padding(horizontal = 16.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.SimCard,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.padding(end = 7.dp)
+                            )
+                            Text(
+                                text = simInfo,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+                    }
+                }
+                if (showHdChip) {
                     Text(
-                        text = simInfo,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color.White
+                        text = "HD",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = .20f), RoundedCornerShape(50.dp))
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
                     )
                 }
             }

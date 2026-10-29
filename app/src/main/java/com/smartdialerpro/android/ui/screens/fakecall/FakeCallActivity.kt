@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -478,6 +479,8 @@ class FakeCallActivity : ComponentActivity() {
             }
         } catch (_: Throwable) {
         }
+        // Real calls update the saved contact's call stats; do the same.
+        FakeCallLogWriter.noteContactCalled(this, number)
         if (wasMissed && !userRejected) {
             FakeCallLogWriter.showFakeMissedCallNotification(this, displayName.value, number)
         }
@@ -532,6 +535,7 @@ class FakeCallActivity : ComponentActivity() {
         val simInfo by simInfoText
         val bitmap by contactBitmap
         val context = LocalContext.current
+        val callTheme by com.smartdialerpro.android.data.ThemeSettings.callTheme.collectAsState()
 
         val isConnecting = state == FakeCallState.DIALING || state == FakeCallState.RINGING
         val showActiveControls = state == FakeCallState.ACTIVE
@@ -539,9 +543,7 @@ class FakeCallActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize()) {
             Box(
                 Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF08070D), Color(0xFF15102A), Color(0xFF241238), Color(0xFF100B19))
-                    )
+                    com.smartdialerpro.android.data.CallThemes.brushFor(callTheme)
                 )
             )
             Column(
@@ -560,7 +562,8 @@ class FakeCallActivity : ComponentActivity() {
                         simInfo = simInfo,
                         contactBitmap = bitmap,
                         animateAvatar = isConnecting,
-                        simSlot = simSlot + 1
+                        simSlot = simSlot + 1,
+                        showHdChip = true
                     )
                 }
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {

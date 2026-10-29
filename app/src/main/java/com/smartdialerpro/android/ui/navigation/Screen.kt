@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Block
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Contacts
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FiberManualRecord
@@ -38,6 +39,9 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object SettingsMagicCall : Screen("settings_magic_call", "Magic Call", Icons.Rounded.AutoAwesome)
     object QuickResponses : Screen("quick_responses", "Quick Responses", Icons.Rounded.Message)
     object CallStats : Screen("call_stats", "Call statistics", Icons.Rounded.History)
+    object CallDetails : Screen("call_details", "Call details", Icons.Rounded.Info)
+    object SetupWizard : Screen("setup_wizard", "Set up SmartDialer", Icons.Rounded.CheckCircle)
+    object PrivacyCentre : Screen("privacy_centre", "Privacy centre", Icons.Rounded.Security)
     object ContactProfile : Screen("contact_profile/{number}", "Profile", Icons.Rounded.Person) {
         fun createRoute(number: String) = "contact_profile/$number"
     }

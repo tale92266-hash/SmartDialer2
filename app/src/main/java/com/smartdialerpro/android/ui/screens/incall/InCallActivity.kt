@@ -158,6 +158,7 @@ fun PremiumInCallScreen(
     val isRecording by CallManager.isRecording.collectAsState()
     val duration by CallManager.duration.collectAsState()
     val trackedCalls by CallManager.trackedCalls.collectAsState()
+    val callTheme by com.smartdialerpro.android.data.ThemeSettings.callTheme.collectAsState()
     var contactBitmap by remember(photoUri) { mutableStateOf<ImageBitmap?>(null) }
     var pendingRecordAfterPermission by remember { mutableStateOf(false) }
     var dtmfDigits by remember { mutableStateOf("") }
@@ -252,7 +253,7 @@ fun PremiumInCallScreen(
     }
 
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF08070D), Color(0xFF15102A), Color(0xFF241238), Color(0xFF100B19)))))
+        Box(Modifier.fillMaxSize().background(com.smartdialerpro.android.data.CallThemes.brushFor(callTheme)))
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 26.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Column(Modifier.fillMaxWidth().weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 InCallHeader(stateText, displayName, number, simInfo, contactBitmap, isRinging || isConnecting, cnapName = cnapName)

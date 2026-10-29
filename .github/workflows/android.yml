@@ -42,3 +42,12 @@ jobs:
         with:
           name: SmartDialer2-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Build release APK (R8)
+        run: ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartDialer2-release-apk
+          path: app/build/outputs/apk/release/*.apk

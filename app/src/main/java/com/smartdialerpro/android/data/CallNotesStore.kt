@@ -113,6 +113,26 @@ object CallNotesStore {
         }
     }
 
+    /** Row count, for the Privacy centre. */
+    fun count(): Int {
+        val dbHelper = helper ?: return 0
+        return try {
+            dbHelper.readableDatabase.query(TABLE, arrayOf("number_key"), null, null, null, null, null, null)
+                .use { it.count }
+        } catch (_: Throwable) {
+            0
+        }
+    }
+
+    /** Deletes every saved call note. */
+    fun clearAll() {
+        val dbHelper = helper ?: return
+        try {
+            dbHelper.writableDatabase.delete(TABLE, null, null)
+        } catch (_: Throwable) {
+        }
+    }
+
     private class Helper(context: Context) :
         SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
         override fun onCreate(db: SQLiteDatabase) {

@@ -56,6 +56,8 @@ import com.smartdialerpro.android.ui.screens.contacts.AddToExistingScreen
 import com.smartdialerpro.android.ui.screens.contacts.ContactEditorScreen
 import com.smartdialerpro.android.ui.screens.contacts.ContactsScreen
 import com.smartdialerpro.android.ui.screens.contacts.FavoritesSpeedDialScreen
+import com.smartdialerpro.android.ui.screens.details.CallDetailsHolder
+import com.smartdialerpro.android.ui.screens.details.CallDetailsScreen
 import com.smartdialerpro.android.ui.screens.home.HomeScreen
 import com.smartdialerpro.android.service.FakeCallSession
 import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
@@ -65,6 +67,7 @@ import com.smartdialerpro.android.ui.screens.profile.ContactProfileScreen
 import com.smartdialerpro.android.ui.screens.search.UniversalSearchScreen
 import com.smartdialerpro.android.ui.screens.settings.BlockedNumbersScreen
 import com.smartdialerpro.android.ui.screens.settings.CallStatsScreen
+import com.smartdialerpro.android.ui.screens.settings.PrivacyCentreScreen
 import com.smartdialerpro.android.ui.screens.settings.QuickResponsesScreen
 import com.smartdialerpro.android.ui.screens.settings.RecordingsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsCallsScreen
@@ -74,6 +77,7 @@ import com.smartdialerpro.android.ui.screens.settings.SettingsPrivacyScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsRecordingScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsScreen
 import com.smartdialerpro.android.ui.screens.settings.SettingsSystemScreen
+import com.smartdialerpro.android.ui.screens.settings.SetupWizardScreen
 import com.smartdialerpro.android.viewmodel.AppViewModelFactory
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
 import com.smartdialerpro.android.viewmodel.DialerViewModel
@@ -356,6 +360,15 @@ fun MainScreen() {
                 }
                 composable(Screen.CallStats.route) {
                     CallStatsScreen(onBack = { navController.popBackStack() })
+                }
+                composable(Screen.CallDetails.route) {
+                    CallDetailsScreen(navController)
+                }
+                composable(Screen.SetupWizard.route) {
+                    SetupWizardScreen(navController)
+                }
+                composable(Screen.PrivacyCentre.route) {
+                    PrivacyCentreScreen(navController)
                 }
                 composable(
                     route = Screen.ContactEditor.route,
