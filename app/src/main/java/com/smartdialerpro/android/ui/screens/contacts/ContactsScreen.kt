@@ -10,6 +10,9 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -53,6 +56,9 @@ import com.smartdialerpro.android.ui.screens.fakecall.FakeCallActivity
 import com.smartdialerpro.android.ui.navigation.Screen
 import com.smartdialerpro.android.util.Utils
 import com.smartdialerpro.android.viewmodel.ContactsViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 sealed interface ContactListItem {
@@ -188,6 +194,28 @@ fun ContactsScreen(
 
     var activePopupLetter by remember { mutableStateOf<String?>(null) }
 
+    // Alphabet sidebar auto-hide: visible while the list scrolls (or the
+    // sidebar itself is dragged), fading out 1.5s after scrolling stops.
+    var sidebarVisible by remember { mutableStateOf(false) }
+    var sidebarDragging by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        var hideJob: Job? = null
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (scrolling) {
+                    hideJob?.cancel()
+                    sidebarVisible = true
+                } else {
+                    hideJob?.cancel()
+                    hideJob = launch {
+                        delay(1500)
+                        if (!sidebarDragging) sidebarVisible = false
+                    }
+                }
+            }
+    }
+
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (!hasPermission) {
             EmptyStateView(
@@ -273,15 +301,22 @@ fun ContactsScreen(
                     }
 
                     if (searchQuery.isBlank()) {
+                        AnimatedVisibility(
+                            visible = sidebarVisible,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        ) {
                         Box(
                             modifier = Modifier
-                                .align(Alignment.CenterEnd)
                                 .fillMaxHeight()
                                 .width(26.dp)
                                 .padding(vertical = 4.dp)
                                 .pointerInput(sidebarLetters, sectionIndexMap) {
                                     detectDragGestures(
                                         onDragStart = { offset ->
+                                            sidebarDragging = true
+                                            sidebarVisible = true
                                             if (size.height > 0) {
                                                 val index = ((offset.y / size.height) * sidebarLetters.size)
                                                     .toInt()
@@ -307,8 +342,8 @@ fun ContactsScreen(
                                                 }
                                             }
                                         },
-                                        onDragEnd = { activePopupLetter = null },
-                                        onDragCancel = { activePopupLetter = null }
+                                        onDragEnd = { sidebarDragging = false; activePopupLetter = null },
+                                        onDragCancel = { sidebarDragging = false; activePopupLetter = null }
                                     )
                                 },
                             contentAlignment = Alignment.CenterEnd
@@ -343,6 +378,7 @@ fun ContactsScreen(
                                     }
                                 }
                             }
+                        }
                         }
                     }
 

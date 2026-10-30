@@ -34,7 +34,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -73,6 +72,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -105,6 +105,8 @@ import com.smartdialerpro.android.viewmodel.DialerViewModel
 import com.smartdialerpro.android.viewmodel.RecentFilter
 import com.smartdialerpro.android.viewmodel.RecentsViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
@@ -293,6 +295,29 @@ fun HomeScreen(
             .collect { dialerOpen = false }
     }
 
+    // Logs fast-scroll sidebar auto-hide: visible while the list scrolls
+    // (or the sidebar itself is dragged), fading out 1.5s after scrolling
+    // stops so it never sits on screen permanently.
+    var logSidebarVisible by remember { mutableStateOf(false) }
+    var logSidebarDragging by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        var hideJob: Job? = null
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (scrolling) {
+                    hideJob?.cancel()
+                    logSidebarVisible = true
+                } else {
+                    hideJob?.cancel()
+                    hideJob = launch {
+                        delay(1500)
+                        if (!logSidebarDragging) logSidebarVisible = false
+                    }
+                }
+            }
+    }
+
     BackHandler(enabled = dialerOpen || isSearchMode || expandedCallId != null) {
         if (dialerOpen) {
             dialerOpen = false
@@ -469,7 +494,7 @@ fun HomeScreen(
                                             onCall = { Utils.makeCall(context, item.call.number) },
                                             onMessage = { openSms(context, item.call.number) },
                                             onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
-                                            onInfo = { com.smartdialerpro.android.ui.screens.details.CallDetailsHolder.call = item.call; navController.navigate(Screen.CallDetails.route) },
+                                            onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
                                             onLongPress = { sheetNumber = item.call.number },
                                             note = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(item.call.number)]
@@ -533,7 +558,7 @@ fun HomeScreen(
                                             onCall = { Utils.makeCall(context, item.call.number) },
                                             onMessage = { openSms(context, item.call.number) },
                                             onWhatsApp = { launchWhatsApp(context, item.call.number) { pendingWhatsAppNumber = it } },
-                                            onInfo = { com.smartdialerpro.android.ui.screens.details.CallDetailsHolder.call = item.call; navController.navigate(Screen.CallDetails.route) },
+                                            onInfo = { navController.navigate(Screen.ContactProfile.createRoute(Uri.encode(item.call.number))) },
                                             onAddContact = { navController.navigate(Screen.ContactEditor.createRoute(null, item.call.number)) },
                                             onLongPress = { sheetNumber = item.call.number },
                                             note = notesMap[com.smartdialerpro.android.data.CallNotesStore.keyFor(item.call.number)]
@@ -546,14 +571,25 @@ fun HomeScreen(
                 }
                     // Fast-scroll sidebar for the logs list (date sections),
                     // mirroring the alphabet sidebar on the Contacts tab.
+                    // Auto-hides when the list is idle (see logSidebarVisible).
                     if (!isSearchMode && !dialerOpen && logSections.isNotEmpty() && groupedCallItems.size > 12) {
-                        LogFastScrollSidebar(
-                            listState = listState,
-                            sections = logSections,
-                            totalItems = groupedCallItems.size,
-                            onActiveLabelChange = { activeLogSection = it },
+                        AnimatedVisibility(
+                            visible = logSidebarVisible,
+                            enter = fadeIn(),
+                            exit = fadeOut(),
                             modifier = Modifier.align(Alignment.CenterEnd)
-                        )
+                        ) {
+                            LogFastScrollSidebar(
+                                listState = listState,
+                                sections = logSections,
+                                totalItems = groupedCallItems.size,
+                                onActiveLabelChange = { activeLogSection = it },
+                                onDragStateChange = { dragging ->
+                                    logSidebarDragging = dragging
+                                    if (dragging) logSidebarVisible = true
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -1056,6 +1092,7 @@ private fun LogFastScrollSidebar(
     sections: List<Pair<String, Int>>,
     totalItems: Int,
     onActiveLabelChange: (String?) -> Unit,
+    onDragStateChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -1119,6 +1156,7 @@ private fun LogFastScrollSidebar(
                 .pointerInput(sections, totalItems) {
                     detectDragGestures(
                         onDragStart = { offset ->
+                            onDragStateChange(true)
                             if (size.height > 0) {
                                 jumpToFraction((offset.y / size.height).coerceIn(0f, 1f))
                             }
@@ -1128,8 +1166,14 @@ private fun LogFastScrollSidebar(
                                 jumpToFraction((change.position.y / size.height).coerceIn(0f, 1f))
                             }
                         },
-                        onDragEnd = { onActiveLabelChange(null) },
-                        onDragCancel = { onActiveLabelChange(null) }
+                        onDragEnd = {
+                            onDragStateChange(false)
+                            onActiveLabelChange(null)
+                        },
+                        onDragCancel = {
+                            onDragStateChange(false)
+                            onActiveLabelChange(null)
+                        }
                     )
                 }
         )
@@ -1157,6 +1201,7 @@ private fun SwipeableCallRow(
     val scope = rememberCoroutineScope()
     val offsetX = remember { Animatable(0f) }
     val density = LocalDensity.current
+    val touchSlopPx = LocalViewConfiguration.current.touchSlop
     val thresholdPx = with(density) { 96.dp.toPx() }
     val maxPx = with(density) { 160.dp.toPx() }
     val offset = offsetX.value
@@ -1212,26 +1257,52 @@ private fun SwipeableCallRow(
                 .background(MaterialTheme.colorScheme.background, RoundedCornerShape(18.dp))
                 .offset { IntOffset(offset.roundToInt(), 0) }
                 .pointerInput(Unit) {
-                    // Direction-locked swipe: wait for touch slop, then
-                    // commit to a horizontal swipe ONLY if the finger moved
-                    // mostly sideways. If it moved mostly up/down, nothing
-                    // is consumed here and the list scrolls normally, so
-                    // scrolling can never slide a row sideways.
+                    // Direction-locked swipe, decided from the finger's own
+                    // path. Phase 1 arbitrates WITHOUT consuming anything,
+                    // so a vertical scroll owns the gesture and the list
+                    // scrolls untouched. A swipe wins only once sideways
+                    // movement clearly dominates, or once the finger has
+                    // travelled well past touch slop and sideways is simply
+                    // the larger axis (a steady diagonal must still swipe:
+                    // deciding once, at the first slop crossing, killed
+                    // almost every real swipe in v22). Phase 2 then
+                    // consumes and moves the row.
                     awaitEachGesture {
                         val down = awaitFirstDown()
-                        var horizontalSwipe = false
-                        val slopChange = awaitTouchSlopOrCancellation(down.id) { change, overSlop ->
-                            if (kotlin.math.abs(overSlop.x) > kotlin.math.abs(overSlop.y)) {
-                                horizontalSwipe = true
-                                change.consume()
-                            }
-                        }
-                        if (slopChange == null || !horizontalSwipe) return@awaitEachGesture
-                        val pointerId = slopChange.id
+                        val downPos = down.position
+                        var decidedHorizontal = false
+                        var releasedCleanly = false
+                        var seedDx = 0f
+                        // Phase 1: arbitrate.
                         while (true) {
                             val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             if (!change.pressed) break
+                            val total = change.position - downPos
+                            val ax = kotlin.math.abs(total.x)
+                            val ay = kotlin.math.abs(total.y)
+                            val clearlyHorizontal = ax > touchSlopPx && ax > ay * 1.5f
+                            val clearlyVertical = ay > touchSlopPx && ay > ax * 1.5f
+                            val travelledFar = ax > touchSlopPx * 2.5f || ay > touchSlopPx * 2.5f
+                            if (clearlyHorizontal || (travelledFar && ax >= ay)) {
+                                decidedHorizontal = true
+                                seedDx = total.x
+                                break
+                            }
+                            if (clearlyVertical || (travelledFar && ay > ax)) break
+                        }
+                        if (!decidedHorizontal) return@awaitEachGesture
+                        // Seed the row at the finger so it does not jump
+                        // when the drag phase takes over mid-gesture.
+                        scope.launch { offsetX.snapTo(seedDx.coerceIn(-maxPx, maxPx)) }
+                        // Phase 2: horizontal drag.
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) {
+                                releasedCleanly = true
+                                break
+                            }
                             val dx = (change.position - change.previousPosition).x
                             if (dx != 0f) {
                                 change.consume()
@@ -1249,9 +1320,11 @@ private fun SwipeableCallRow(
                         }
                         crossed = false
                         scope.launch {
-                            when {
-                                offsetX.value > thresholdPx -> onCall()
-                                offsetX.value < -thresholdPx -> onMessage()
+                            if (releasedCleanly) {
+                                when {
+                                    offsetX.value > thresholdPx -> onCall()
+                                    offsetX.value < -thresholdPx -> onMessage()
+                                }
                             }
                             offsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
                         }
