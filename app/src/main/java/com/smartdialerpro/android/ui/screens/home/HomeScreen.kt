@@ -573,23 +573,18 @@ fun HomeScreen(
                     // mirroring the alphabet sidebar on the Contacts tab.
                     // Auto-hides when the list is idle (see logSidebarVisible).
                     if (!isSearchMode && !dialerOpen && logSections.isNotEmpty() && groupedCallItems.size > 12) {
-                        AnimatedVisibility(
+                        AutoHideLogSidebar(
                             visible = logSidebarVisible,
-                            enter = fadeIn(),
-                            exit = fadeOut(),
+                            listState = listState,
+                            sections = logSections,
+                            totalItems = groupedCallItems.size,
+                            onActiveLabelChange = { activeLogSection = it },
+                            onDragStateChange = { dragging ->
+                                logSidebarDragging = dragging
+                                if (dragging) logSidebarVisible = true
+                            },
                             modifier = Modifier.align(Alignment.CenterEnd)
-                        ) {
-                            LogFastScrollSidebar(
-                                listState = listState,
-                                sections = logSections,
-                                totalItems = groupedCallItems.size,
-                                onActiveLabelChange = { activeLogSection = it },
-                                onDragStateChange = { dragging ->
-                                    logSidebarDragging = dragging
-                                    if (dragging) logSidebarVisible = true
-                                }
-                            )
-                        }
+                        )
                     }
                 }
             }
@@ -1176,6 +1171,38 @@ private fun LogFastScrollSidebar(
                         }
                     )
                 }
+        )
+    }
+}
+
+/**
+ * Logs sidebar with its fade in/out, kept as its own composable so
+ * AnimatedVisibility resolves to the top-level overload (inside a
+ * ColumnScope it would pick the ColumnScope overload and fail to
+ * compile).
+ */
+@Composable
+private fun AutoHideLogSidebar(
+    visible: Boolean,
+    listState: LazyListState,
+    sections: List<Pair<String, Int>>,
+    totalItems: Int,
+    onActiveLabelChange: (String?) -> Unit,
+    onDragStateChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier
+    ) {
+        LogFastScrollSidebar(
+            listState = listState,
+            sections = sections,
+            totalItems = totalItems,
+            onActiveLabelChange = onActiveLabelChange,
+            onDragStateChange = onDragStateChange
         )
     }
 }

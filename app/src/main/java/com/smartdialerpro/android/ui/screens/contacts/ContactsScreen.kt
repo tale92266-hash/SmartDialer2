@@ -21,6 +21,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -301,85 +302,19 @@ fun ContactsScreen(
                     }
 
                     if (searchQuery.isBlank()) {
-                        AnimatedVisibility(
+                        ContactsAlphabetSidebar(
                             visible = sidebarVisible,
-                            enter = fadeIn(),
-                            exit = fadeOut(),
+                            sidebarLetters = sidebarLetters,
+                            sectionIndexMap = sectionIndexMap,
+                            availableLetters = availableLetters,
+                            listState = listState,
+                            onLetterActive = { activePopupLetter = it },
+                            onDragStateChange = { dragging ->
+                                sidebarDragging = dragging
+                                if (dragging) sidebarVisible = true
+                            },
                             modifier = Modifier.align(Alignment.CenterEnd)
-                        ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(26.dp)
-                                .padding(vertical = 4.dp)
-                                .pointerInput(sidebarLetters, sectionIndexMap) {
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
-                                            sidebarDragging = true
-                                            sidebarVisible = true
-                                            if (size.height > 0) {
-                                                val index = ((offset.y / size.height) * sidebarLetters.size)
-                                                    .toInt()
-                                                    .coerceIn(0, sidebarLetters.lastIndex)
-                                                val char = sidebarLetters[index]
-                                                val sectionKey = if (char == "★") "Favorites" else char
-                                                activePopupLetter = sectionKey
-                                                sectionIndexMap[sectionKey]?.let { targetIdx ->
-                                                    coroutineScope.launch { listState.scrollToItem(targetIdx) }
-                                                }
-                                            }
-                                        },
-                                        onDrag = { change, _ ->
-                                            if (size.height > 0) {
-                                                val index = ((change.position.y / size.height) * sidebarLetters.size)
-                                                    .toInt()
-                                                    .coerceIn(0, sidebarLetters.lastIndex)
-                                                val char = sidebarLetters[index]
-                                                val sectionKey = if (char == "★") "Favorites" else char
-                                                activePopupLetter = sectionKey
-                                                sectionIndexMap[sectionKey]?.let { targetIdx ->
-                                                    coroutineScope.launch { listState.scrollToItem(targetIdx) }
-                                                }
-                                            }
-                                        },
-                                        onDragEnd = { sidebarDragging = false; activePopupLetter = null },
-                                        onDragCancel = { sidebarDragging = false; activePopupLetter = null }
-                                    )
-                                },
-                            contentAlignment = Alignment.CenterEnd
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxHeight(),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                sidebarLetters.forEach { char ->
-                                    val sectionKey = if (char == "★") "Favorites" else char
-                                    val exists = availableLetters.contains(sectionKey)
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxWidth()
-                                            .clickable(enabled = exists) {
-                                                activePopupLetter = sectionKey
-                                                sectionIndexMap[sectionKey]?.let { idx ->
-                                                    coroutineScope.launch { listState.scrollToItem(idx) }
-                                                }
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = char,
-                                            fontSize = if (char == "★") 10.sp else 8.5.sp,
-                                            lineHeight = 9.sp,
-                                            fontWeight = if (exists) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (exists) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        }
+                        )
                     }
 
                     activePopupLetter?.let { letter ->
@@ -623,3 +558,102 @@ fun ContactAvatar(name: String, photoUri: String?, size: androidx.compose.ui.uni
     }
 }
 
+
+/**
+ * Alphabet fast-scroll sidebar for the Contacts tab, kept as its own
+ * composable so AnimatedVisibility resolves to the top-level overload
+ * (inside a ColumnScope it would pick the ColumnScope overload and fail
+ * to compile). Dragging or tapping a letter jumps the list to that
+ * section and reports the active letter for the centre popup bubble.
+ */
+@Composable
+private fun ContactsAlphabetSidebar(
+    visible: Boolean,
+    sidebarLetters: List<String>,
+    sectionIndexMap: Map<String, Int>,
+    availableLetters: Set<String>,
+    listState: LazyListState,
+    onLetterActive: (String?) -> Unit,
+    onDragStateChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val coroutineScope = rememberCoroutineScope()
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .width(26.dp)
+                .padding(vertical = 4.dp)
+                .pointerInput(sidebarLetters, sectionIndexMap) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            onDragStateChange(true)
+                            if (size.height > 0) {
+                                val index = ((offset.y / size.height) * sidebarLetters.size)
+                                    .toInt()
+                                    .coerceIn(0, sidebarLetters.lastIndex)
+                                val char = sidebarLetters[index]
+                                val sectionKey = if (char == "★") "Favorites" else char
+                                onLetterActive(sectionKey)
+                                sectionIndexMap[sectionKey]?.let { targetIdx ->
+                                    coroutineScope.launch { listState.scrollToItem(targetIdx) }
+                                }
+                            }
+                        },
+                        onDrag = { change, _ ->
+                            if (size.height > 0) {
+                                val index = ((change.position.y / size.height) * sidebarLetters.size)
+                                    .toInt()
+                                    .coerceIn(0, sidebarLetters.lastIndex)
+                                val char = sidebarLetters[index]
+                                val sectionKey = if (char == "★") "Favorites" else char
+                                onLetterActive(sectionKey)
+                                sectionIndexMap[sectionKey]?.let { targetIdx ->
+                                    coroutineScope.launch { listState.scrollToItem(targetIdx) }
+                                }
+                            }
+                        },
+                        onDragEnd = { onDragStateChange(false); onLetterActive(null) },
+                        onDragCancel = { onDragStateChange(false); onLetterActive(null) }
+                    )
+                },
+            contentAlignment = Alignment.CenterEnd
+        ) {
+            Column(
+                modifier = Modifier.fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                sidebarLetters.forEach { char ->
+                    val sectionKey = if (char == "★") "Favorites" else char
+                    val exists = availableLetters.contains(sectionKey)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .clickable(enabled = exists) {
+                                onLetterActive(sectionKey)
+                                sectionIndexMap[sectionKey]?.let { idx ->
+                                    coroutineScope.launch { listState.scrollToItem(idx) }
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = char,
+                            fontSize = if (char == "★") 10.sp else 8.5.sp,
+                            lineHeight = 9.sp,
+                            fontWeight = if (exists) FontWeight.Bold else FontWeight.Normal,
+                            color = if (exists) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.22f),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
