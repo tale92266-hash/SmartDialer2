@@ -61,6 +61,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -68,6 +70,10 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -161,13 +167,32 @@ fun HomeScreen(
     
     var topSearchQuery by rememberSaveable { mutableStateOf("") }
     var dialedNumber by rememberSaveable { mutableStateOf("") }
+    // Cursor/selection inside the dialled number, in raw (unformatted)
+    // coordinates. The display field maps it through the grouping spaces.
+    var dialSelection by remember { mutableStateOf(TextRange.Zero) }
+    val dialFocusRequester = remember { FocusRequester() }
     var pendingWhatsAppNumber by remember { mutableStateOf<String?>(null) }
 
-    // A tel: link from another app pre-fills the dialpad once.
-    LaunchedEffect(Unit) {
-        com.smartdialerpro.android.data.PendingDialNumber.take()?.let { number ->
-            dialedNumber = number
-            dialerOpen = true
+    // A tel: link from another app pre-fills the dialpad, on every delivery:
+    // cold start (offered before the first composition) and reuse via
+    // onNewIntent when the activity already runs in its own task.
+    val pendingDialVersion by com.smartdialerpro.android.data.PendingDialNumber.version.collectAsState()
+    LaunchedEffect(pendingDialVersion) {
+        if (pendingDialVersion > 0) {
+            com.smartdialerpro.android.data.PendingDialNumber.take()?.let { number ->
+                dialedNumber = number
+                dialSelection = TextRange(number.length)
+                dialerOpen = true
+            }
+        }
+    }
+
+    // Cursor visible as soon as the dialpad sheet opens (the soft keyboard
+    // stays hidden: the field requests no keyboard, the keypad types).
+    LaunchedEffect(dialerOpen) {
+        if (dialerOpen) {
+            delay(300)
+            runCatching { dialFocusRequester.requestFocus() }
         }
     }
 
@@ -326,6 +351,7 @@ fun HomeScreen(
         } else if (isSearchMode) {
             topSearchQuery = ""
             dialedNumber = ""
+            dialSelection = TextRange.Zero
         }
     }
 
@@ -402,7 +428,7 @@ fun HomeScreen(
                     topSearchQuery = it
                     if (dialerOpen && it.isNotBlank()) dialerOpen = false
                 },
-                onClear = { topSearchQuery = ""; dialedNumber = "" },
+                onClear = { topSearchQuery = ""; dialedNumber = ""; dialSelection = TextRange.Zero },
                 showClear = isSearchMode
             )
 
@@ -663,21 +689,31 @@ fun HomeScreen(
 
                     HomeNumberDisplayRow(
                         number = dialedNumber,
+                        selection = dialSelection,
+                        onEdit = { text, sel ->
+                            dialedNumber = text
+                            dialSelection = sel
+                        },
                         onDelete = {
                             if (dialedNumber.isNotEmpty()) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                dialedNumber = dialedNumber.dropLast(1)
+                                val (text, sel) = deleteDialBefore(dialedNumber, dialSelection)
+                                dialedNumber = text
+                                dialSelection = sel
                             }
                         },
                         onLongDelete = {
                             if (dialedNumber.isNotEmpty()) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                dialedNumber = ""
+                                // Everything left of the cursor is deleted;
+                                // the right part stays. Cursor at the end
+                                // clears the whole number, as before.
+                                val cut = dialSelection.min.coerceIn(0, dialedNumber.length)
+                                dialedNumber = dialedNumber.substring(cut)
+                                dialSelection = TextRange.Zero
                             }
                         },
-                        onNumberLongPress = {
-                            if (dialedNumber.isNotBlank()) sheetNumber = dialedNumber
-                        }
+                        focusRequester = dialFocusRequester
                     )
 
                     if (sims.size > 1) {
@@ -696,12 +732,16 @@ fun HomeScreen(
                         assignedDigits = speedDialAssigned,
                         onDigit = { digit ->
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            dialedNumber += digit
+                            val (text, sel) = insertDialText(dialedNumber, dialSelection, digit)
+                            dialedNumber = text
+                            dialSelection = sel
                         },
                         onLongDigit = { digit ->
                             if (digit == "0") {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                dialedNumber += "+"
+                                val (text, sel) = insertDialText(dialedNumber, dialSelection, "+")
+                                dialedNumber = text
+                                dialSelection = sel
                             } else if (digit in "2".."9") {
                                 // Speed dial: with a typed number, long-press
                                 // stores it on this digit; empty dialpad +
@@ -899,6 +939,7 @@ fun HomeScreen(
                 onDirectCall = { fakeNumber, durationSecs, slot ->
                     dialerOpen = false
                     dialedNumber = ""
+                    dialSelection = TextRange.Zero
                     FakeCallActivity.start(context, fakeNumber, durationSecs, slot)
                 }
             )
@@ -1676,9 +1717,11 @@ private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp, highligh
 @Composable
 private fun HomeNumberDisplayRow(
     number: String,
+    selection: TextRange,
+    onEdit: (String, TextRange) -> Unit,
     onDelete: () -> Unit,
     onLongDelete: () -> Unit,
-    onNumberLongPress: () -> Unit = {}
+    focusRequester: FocusRequester
 ) {
     val fontSize = when {
         number.length <= 6 -> 32.sp
@@ -1710,19 +1753,47 @@ private fun HomeNumberDisplayRow(
         Box(
             modifier = Modifier
                 .weight(1f)
-                .height(50.dp)
-                .combinedClickable(onClick = {}, onLongClick = onNumberLongPress),
+                .height(50.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = formattedNumber,
-                fontSize = fontSize,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                letterSpacing = 1.sp,
-                modifier = Modifier.basicMarquee()
+            // Real editable field: tap places the cursor, long-press
+            // selects text, the cursor blinks while typing. The keypad
+            // inserts at the cursor; the soft keyboard never appears.
+            BasicTextField(
+                value = TextFieldValue(
+                    formattedNumber,
+                    TextRange(
+                        formattedCursorFor(number, selection.min),
+                        formattedCursorFor(number, selection.max)
+                    )
+                ),
+                onValueChange = { new ->
+                    val rawText = new.text.filter { it.isDigit() || it == '+' || it == '*' || it == '#' || it == ',' }
+                    onEdit(
+                        rawText,
+                        TextRange(
+                            rawCursorFor(new.text, new.selection.min),
+                            rawCursorFor(new.text, new.selection.max)
+                        )
+                    )
+                },
+                singleLine = true,
+                textStyle = LocalTextStyle.current.copy(
+                    fontSize = fontSize,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 1.sp
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Phone,
+                    showKeyboardOnFocus = false
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .basicMarquee()
+                    .focusRequester(focusRequester)
             )
         }
 
@@ -1846,6 +1917,44 @@ private fun HomeSimSelector(sims: List<SimInfo>, selectedIndex: Int, onSelect: (
             }
         }
     }
+}
+
+/** Maps a cursor in raw (unformatted) coordinates to formatted-display coordinates. */
+private fun formattedCursorFor(raw: String, rawCursor: Int): Int {
+    val formatted = formatDisplayNumber(raw)
+    val target = rawCursor.coerceIn(0, raw.length)
+    var seen = 0
+    var index = 0
+    while (index < formatted.length && seen < target) {
+        if (formatted[index] != ' ') seen++
+        index++
+    }
+    return index
+}
+
+/** Maps a cursor in formatted-display coordinates back to raw coordinates. */
+private fun rawCursorFor(formatted: String, formattedCursor: Int): Int {
+    val target = formattedCursor.coerceIn(0, formatted.length)
+    var count = 0
+    for (i in 0 until target) if (formatted[i] != ' ') count++
+    return count
+}
+
+/** Inserts [inserted] at the cursor (replacing any selection). */
+private fun insertDialText(raw: String, selection: TextRange, inserted: String): Pair<String, TextRange> {
+    val lo = selection.min.coerceIn(0, raw.length)
+    val hi = selection.max.coerceIn(0, raw.length)
+    val next = raw.substring(0, lo) + inserted + raw.substring(hi)
+    return next to TextRange(lo + inserted.length)
+}
+
+/** Deletes the selection, or the single character left of the cursor. */
+private fun deleteDialBefore(raw: String, selection: TextRange): Pair<String, TextRange> {
+    val lo = selection.min.coerceIn(0, raw.length)
+    val hi = selection.max.coerceIn(0, raw.length)
+    if (lo != hi) return raw.removeRange(lo, hi) to TextRange(lo)
+    if (lo <= 0) return raw to selection
+    return raw.removeRange(lo - 1, lo) to TextRange(lo - 1)
 }
 
 private fun formatDisplayNumber(raw: String): String {

@@ -123,7 +123,10 @@ fun DialerScreen(
                 onLongDelete = {
                     if (numberValue.text.isNotEmpty()) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        numberValue = TextFieldValue("")
+                        // Everything left of the cursor is deleted; the
+                        // right part stays. Cursor at the end clears all.
+                        val cursor = numberValue.selection.start.coerceIn(0, numberValue.text.length)
+                        numberValue = formatForDisplay(TextFieldValue(numberValue.text.substring(cursor), TextRange(0)))
                     }
                 }
             )
