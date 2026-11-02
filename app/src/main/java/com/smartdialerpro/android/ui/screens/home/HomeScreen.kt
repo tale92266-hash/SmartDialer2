@@ -71,8 +71,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextRange
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -1757,8 +1755,8 @@ private fun HomeNumberDisplayRow(
             contentAlignment = Alignment.Center
         ) {
             // Real editable field: tap places the cursor, long-press
-            // selects text, the cursor blinks while typing. The keypad
-            // inserts at the cursor; the soft keyboard never appears.
+            // selects text, the cursor blinks while typing. Read-only so
+            // the soft keyboard never appears; the keypad types.
             BasicTextField(
                 value = TextFieldValue(
                     formattedNumber,
@@ -1778,16 +1776,13 @@ private fun HomeNumberDisplayRow(
                     )
                 },
                 singleLine = true,
+                readOnly = true,
                 textStyle = LocalTextStyle.current.copy(
                     fontSize = fontSize,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                     textAlign = TextAlign.Center,
                     letterSpacing = 1.sp
-                ),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Phone,
-                    showKeyboardOnFocus = false
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 modifier = Modifier
