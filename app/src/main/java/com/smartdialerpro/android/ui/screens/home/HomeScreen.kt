@@ -15,8 +15,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
@@ -37,6 +41,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
@@ -60,9 +65,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.SolidColor
@@ -70,8 +76,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -168,7 +174,6 @@ fun HomeScreen(
     // Cursor/selection inside the dialled number, in raw (unformatted)
     // coordinates. The display field maps it through the grouping spaces.
     var dialSelection by remember { mutableStateOf(TextRange.Zero) }
-    val dialFocusRequester = remember { FocusRequester() }
     var pendingWhatsAppNumber by remember { mutableStateOf<String?>(null) }
 
     // A tel: link from another app pre-fills the dialpad, on every delivery:
@@ -182,15 +187,6 @@ fun HomeScreen(
                 dialSelection = TextRange(number.length)
                 dialerOpen = true
             }
-        }
-    }
-
-    // Cursor visible as soon as the dialpad sheet opens (the soft keyboard
-    // stays hidden: the field requests no keyboard, the keypad types).
-    LaunchedEffect(dialerOpen) {
-        if (dialerOpen) {
-            delay(300)
-            runCatching { dialFocusRequester.requestFocus() }
         }
     }
 
@@ -688,10 +684,7 @@ fun HomeScreen(
                     HomeNumberDisplayRow(
                         number = dialedNumber,
                         selection = dialSelection,
-                        onEdit = { text, sel ->
-                            dialedNumber = text
-                            dialSelection = sel
-                        },
+                        onCursorChange = { dialSelection = it },
                         onDelete = {
                             if (dialedNumber.isNotEmpty()) {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -710,8 +703,7 @@ fun HomeScreen(
                                 dialedNumber = dialedNumber.substring(cut)
                                 dialSelection = TextRange.Zero
                             }
-                        },
-                        focusRequester = dialFocusRequester
+                        }
                     )
 
                     if (sims.size > 1) {
@@ -1716,10 +1708,9 @@ private fun HomeCachedAvatar(name: String, photoUri: String?, size: Dp, highligh
 private fun HomeNumberDisplayRow(
     number: String,
     selection: TextRange,
-    onEdit: (String, TextRange) -> Unit,
+    onCursorChange: (TextRange) -> Unit,
     onDelete: () -> Unit,
-    onLongDelete: () -> Unit,
-    focusRequester: FocusRequester
+    onLongDelete: () -> Unit
 ) {
     val fontSize = when {
         number.length <= 6 -> 32.sp
@@ -1754,41 +1745,78 @@ private fun HomeNumberDisplayRow(
                 .height(50.dp),
             contentAlignment = Alignment.Center
         ) {
-            // Real editable field: tap places the cursor, long-press
-            // selects text, the cursor blinks while typing. Read-only so
-            // the soft keyboard never appears; the keypad types.
-            BasicTextField(
-                value = TextFieldValue(
-                    formattedNumber,
-                    TextRange(
-                        formattedCursorFor(number, selection.min),
-                        formattedCursorFor(number, selection.max)
-                    )
+            // The cursor is drawn by hand: the system field's cursor
+            // never showed on-device, so nothing here depends on focus
+            // or IME behaviour. Tap (or long-press) anywhere on the
+            // number moves the cursor there; it blinks while the pad
+            // is open, and the keypad inserts at the cursor.
+            var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+            val cursorAlpha by rememberInfiniteTransition(label = "dialCursorBlink").animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = keyframes {
+                        durationMillis = 1060
+                        1f at 0
+                        1f at 530
+                        0f at 531
+                        0f at 1060
+                    },
+                    repeatMode = RepeatMode.Restart
                 ),
-                onValueChange = { new ->
-                    val rawText = new.text.filter { it.isDigit() || it == '+' || it == '*' || it == '#' || it == ',' }
-                    onEdit(
-                        rawText,
-                        TextRange(
-                            rawCursorFor(new.text, new.selection.min),
-                            rawCursorFor(new.text, new.selection.max)
-                        )
-                    )
-                },
-                singleLine = true,
-                readOnly = true,
-                textStyle = LocalTextStyle.current.copy(
-                    fontSize = fontSize,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 1.sp
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                label = "dialCursorAlpha"
+            )
+            val cursorColor = MaterialTheme.colorScheme.primary
+            Text(
+                text = formattedNumber,
+                fontSize = fontSize,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                letterSpacing = 1.sp,
+                onTextLayout = { textLayoutResult = it },
                 modifier = Modifier
                     .fillMaxWidth()
                     .basicMarquee()
-                    .focusRequester(focusRequester)
+                    .drawWithContent {
+                        drawContent()
+                        if (cursorAlpha > 0f) {
+                            val layout = textLayoutResult
+                            if (layout != null) {
+                                val offset = formattedCursorFor(number, selection.min)
+                                    .coerceIn(0, formattedNumber.length)
+                                val rect = layout.getCursorRect(offset)
+                                val barWidth = 2.dp.toPx()
+                                val barHeight = if (rect.height > 0f) rect.height else fontSize.toPx() * 1.2f
+                                val barLeft = if (formattedNumber.isEmpty()) {
+                                    (size.width - barWidth) / 2f
+                                } else {
+                                    rect.left
+                                }
+                                val barTop = (size.height - barHeight) / 2f
+                                drawRect(
+                                    color = cursorColor,
+                                    topLeft = Offset(barLeft, barTop),
+                                    size = Size(barWidth, barHeight)
+                                )
+                            }
+                        }
+                    }
+                    .pointerInput(formattedNumber) {
+                        detectTapGestures(
+                            onTap = { tapOffset ->
+                                textLayoutResult?.getOffsetForPosition(tapOffset)?.let { tapped ->
+                                    onCursorChange(TextRange(rawCursorFor(formattedNumber, tapped)))
+                                }
+                            },
+                            onLongPress = { pressOffset ->
+                                textLayoutResult?.getOffsetForPosition(pressOffset)?.let { tapped ->
+                                    onCursorChange(TextRange(rawCursorFor(formattedNumber, tapped)))
+                                }
+                            }
+                        )
+                    }
             )
         }
 
